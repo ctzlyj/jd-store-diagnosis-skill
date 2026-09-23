@@ -16,8 +16,8 @@ description: 京东POP店铺月度经营+广告全链路数据诊断。给定目
 ## 硬约束（每次都必须遵守）
 
 1. **绝不抢占用户工作界面**：所有页面操作用后台标签（createTab 第三参 background=true），标签用完关闭；启动 zguard 循环守卫把店铺浏览器窗口压到底层；绝不切换/导航用户正在用的浏览器
-2. **凭证不落盘**：Cookie/Token 不进源码、日志、报告、截图、Git；请求头在内存中捕获使用（sz-fetch.js 已如此实现）
-3. **报告零 AI 痕迹**：按 references/humanize-rules.md 的人工口吻写，交付前自查
+2. **凭证不落盘**：Cookie/Token 不进源码、日志、报告、截图、Git；请求头在内存中生成/捕获使用（sz-fetch.js 已如此实现）
+3. **报告零 AI 痕迹**：报告是运营顾问一对一写给商家老板的汇报，要让老板觉得是人认真写的、很重视他。核心要求：结论先行、行动清单紧跟结论放前面（老板没耐心看长文）、每个结论和动作挂数字依据、看不到的数据坦诚说明、不过度承诺；交付前自查一遍有没有 AI 腔，JoySpace 发布后评论数必须为 0。措辞、结构、口吻由你自由发挥，不套模板
 4. **可回溯**：config、计划、原始数据留在任务 work/ 目录，报告中的每个数字都能回查
 
 ## 流程（六步）
@@ -40,17 +40,19 @@ zguard 循环约 30 分钟有效期，过期重启；防止店铺浏览器任何
 python scripts/make_plans.py --config diagnosis-config.json --out work/plans
 ```
 
-产出 4 个计划：plan-sz.json（商智 13 项）、plan-jzt-report.json（账户/计划/分日）、plan-jzt-dims.json（报表 8 维度×9/8月）、plan-jzt-industry.json（行业大盘/榜单/推荐词）。
+产出 4 个计划：plan-sz.json（商智）、plan-jzt-report.json（账户/计划/分日）、plan-jzt-dims.json（报表 8 维度×当月+对比月）、plan-jzt-industry.json（行业大盘/榜单/推荐词）。
 
 ### 3. 采集商智（sz-fetch.js）
-
-商智页面请求走 Web Worker，Network 层抓不到请求体；用 XHR 重放：先导航到商智首页，从页面请求捕获 User-mnp/User-mup/uuid 等头（仅内存），再逐条重放计划。
 
 ```powershell
 node scripts/sz-fetch.js --plan work/plans/plan-sz.json --out work/sz --page https://jdsz.jd.com/szweb/view/index/home.html
 ```
 
-校验：gateway `header.code == 0`。响应在 `body.data`；size=0 表示无权限或参数错，对照 references/api-reference.md 修。
+- **签名（2026-09-15 起 szweb 强制）**：每请求算 `User-mnp = md5(pathname + uuid + 毫秒时间戳 + 固定盐)`，sz-fetch.js 已内置自动计算，直接用即可；若平台再改签名，回到页面里抓真实请求头对照排查
+- 校验：gateway `header.code == 0`。响应在 `body.data`；size=0 表示无权限或参数错，对照 references/api-reference.md 修
+- **响应 shape 差异**：多数端点 `body.data` 是 list；搜索词榜 `body` 本身就是 list；商品明细表（productTable）首行是 `$summary: true` 的合计行，统计明细前先过滤
+- 建议加采三块（端点见 api-reference.md）：首页「商品诊断/流量诊断」（getProductAnalysisData / getFlowAnalysisData，官方预警口径）、「今日快照」（indexSummary/summary，实时口径仅看方向）
+- 流量来源（flowSource）只有 APP 渠道口径，没有站外/PC 合并行，报告数据说明要写清这个限制
 
 ### 4. 采集京准通（jzt-run.js）
 
@@ -60,33 +62,39 @@ node scripts/jzt-run.js --plan work/plans/plan-jzt-dims.json --out work/jzt-dims
 node scripts/jzt-run.js --plan work/plans/plan-jzt-industry.json --out work/jzt-ind --nav https://jzt.jd.com/custom-report/#/industry/market
 ```
 
-校验：`code == 1` 即成功。注意脚本日志的 rows=0 有误导：行业接口数据在 `data.rows` 而脚本读 `data.datas`，先看 code 再解析 body 确认。
+- 校验：`code == 1` 即成功。**响应 shape 有三种**：账户报表数据在 `data.datas`；行业 whole/billboard/area 数据在 `data.rows`（月度汇总在 `data.summariesMap.TOTAL_SUMMARY`）；热搜词榜/品牌榜 `data` 本身是 list。脚本日志 rows=0 有误导，先看 code 再解析 body
+- **账户余额必查（断投风险）**：`POST https://atoms-api.jd.com/financecore/subaccount/allbalance/get`（body `{}`，页面上下文内 XHR）。cashBalance 为 0 或接近 0 → 广告可能已断投，必须进「立即做」行动项——断投不只是丢当天订单，智能计划的模型学习也会被打断
 
-### 5. 分析（固定框架）
+### 5. 分析（结论导向）
 
-按 references/report-template.md 的九部分结构组织，核心动作：
+怎么组织、怎么措辞由你自由发挥，但产出必须满足：
 
-- 算环比 + 同行同级对比，每个异常归因到「能动手的杠杆」
+- **结论先行 + 行动清单紧跟其后**：老板 3 分钟内能消化「发生了什么、要做什么」；动作按 A 立即（24小时内）/ B 本周 / C 本月编号，具体到可执行（给计划编号、给词、给出价、给金额），禁止「建议优化」这类空话；每条动作在后面明细里有数字依据可查
+- 每个结论有数字证据（环比/对比期/同行/行业），归因到「能动手的杠杆」
 - 计划处置四类：加投（ROI≥2 且花费≥100）/ 保持微调 / 降价收缩（ROI<1 且花费≥300）/ 关停（零订单且花费≥20）
 - 报表 8 维度 0 行 = 全智能托管黑盒 → 必给「开手动快车」行动项；词单 = 商智搜索词高转化词 × 京准通行业榜单/推荐词，出价用行业参考价上下浮 10%
 - 行业对照双口径：商智（成交）+ 京准通（广告），分两小节
+- 商智/京准通广告数据交叉核对（如全店推广计划花费两边应一致；ROI 差异是归因窗口不同，要在数据说明里解释）
+- 异常数据（单日异常、断投日、高基数失真）坦诚说明，不假装没看见
 
 ### 6. 产出报告并发布
 
-- 结构严格按 references/report-template.md：一结论（含三条核心）→ 二行动清单（A立即/B本周/C本月，放最前，老板没耐心看长文）→ 三核心数据 → 四广告 → 五商品 → 六行业 → 七流量来源与搜索词 → 八风险 → 九数据说明
-- 分层压缩：正文只留结论/动作/判断/小表证据，大表（分日全量、16 项全指标、TOP30+）放 Excel 并注明去向
-- Excel 同步生成：Sheet 与正文章节对应，命名「N-主题」
-- 口吻按 references/humanize-rules.md：人工措辞、老板您好开场、随时找我收尾
-- 发布 JoySpace（用 joyspace-access Skill 或等价 CLI）：整篇替换正文 → 插入 Excel 附件（必须 --no-summary，避免 AI 评论）→ 读回验证内容命中 + 评论数=0 → 给用户链接
+- 骨架参考（可按店铺实际情况增删调整）：结论（含三条核心）→ 行动清单 → 核心经营数据 → 广告诊断 → 商品诊断 → 行业对照 → 流量与搜索词 → 风险提示 → 数据说明
+- **分层压缩**：正文只留结论/动作/判断/小表证据，大表（分日全量、全指标、TOP30+）放 Excel 并注明去向；商家会逐行看的表（计划明细、商品 TOP）不压缩
+- **Excel 用 openpyxl 生成**：Sheet 与正文章节对应，命名「N-主题」；数字格式按指标类型设置（金额/计数/百分比分开），区间统一用「—」不用「~」（JoySpace 会把单个 ~ 渲染成删除线）
+- **发布链（joyspace-access Skill）**：create 新文档（`--no-ai-mark`）→ `replace_doc.py <pageId> <md>` 整篇替换（自动备份+读回验证）→ `edit_body.py <pageId> insert-attachment --near "<结尾句>" --file <xlsx> --no-summary`（必须 `--no-summary`，否则生成 AI 摘要评论=失败）→ 读回验证内容命中 + 评论数 0 → 给用户链接
+- Windows 上若 `D:/Miniconda3/python.exe` 不存在，joyspace_cli.py 会找不到提取器：先 `$env:JOYSPACE_PYTHON=(Get-Command python).Source` 再跑
 
 ## 常见坑
 
 - PowerShell 写 JSON 计划必须无 BOM：用 `[IO.File]::WriteAllText` 配 `UTF8Encoding($false)`；make_plans.py 已处理
-- 商智/京准通口径不同（新快车 vs 广告点击 30 天累计），报告第九部分必须写口径说明
+- PowerShell 下 python 内联脚本读中文路径会 GBK 乱码报错（路径变 `??`）：改用相对路径，或设 `PYTHONUTF8=1`
+- 商智/京准通口径不同（新快车 vs 广告点击 30 天累计），报告数据说明必须写口径说明
 - 行业接口缺 `clickOrOrderCaliber/clickOrOrderDay/giftFlag/orderStatusCategory` 会 400「跟单口径缺失」
 - 京准通 cid3 与商智 cid2 不是同一 ID 体系，分别从各自页面查
 - 首页「今日快照」是 15 天口径，与月报 30 天口径不可比，只作观察
+- zguard 循环约 30 分钟有效期，长任务中途过期就重启一次
 
 ## 迭代
 
-本 Skill 源自 2026-09 淡雅装饰画甄选店全链路诊断实践。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。
+本 Skill 源自 2026-09 淡雅装饰画甄选店、墨派风画舍两次全链路实战（含 szweb 新版签名破解、京准通三种响应 shape、账户余额断投核查、行业大盘/品牌榜/热词榜、Excel 十表、JoySpace 发布链）。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。

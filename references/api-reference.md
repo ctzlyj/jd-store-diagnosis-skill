@@ -1,14 +1,15 @@
 # 京东商智 + 京准通 采集接口参考
 
-全部端点均在 2026-09 淡雅装饰画甄选店诊断中实盘验证。采集方式：专用 Chrome profile（CDP 9224）后台标签内 XHR 重放，凭证走浏览器登录态，请求头仅内存捕获、不落盘。
+全部端点均在 2026-09 淡雅装饰画甄选店、墨派风画舍两次诊断中实盘验证。采集方式：专用 Chrome profile（CDP 9224）后台标签内 XHR 重放，凭证走浏览器登录态，请求头仅内存生成/捕获、不落盘。
 
 ## 一、京东商智（jdsz.jd.com / szgateway.jd.com）
 
 ### 通用要求
 
 - **网关**：`https://szgateway.jd.com`
-- **关键请求头**：`User-mnp`、`User-mup`、`uuid`、`X-Requested-With`——由 sz-fetch.js 先导航商智首页时从真实请求中捕获（内存持有），自己写采集器时不能省
+- **关键请求头（2026-09-15 起强制每请求签名）**：`User-mnp = md5(pathname + uuid + User-mup + "372ad2c2b6")`，其中 `uuid` 每请求随机、`User-mup` 为毫秒时间戳；另带 `X-Requested-With: XMLHttpRequest`。sz-fetch.js 已内置自动计算；若平台再改算法，导航商智首页抓一条真实请求对照排查
 - **响应结构**：`{"header": {"code": 0, ...}, "body": {"data": ..., "size": ...}}`；code=0 成功，size=0 多为无权限或参数错误
+- **响应 shape 差异（勿想当然）**：多数端点 `body.data` 是 list；**搜索词榜的 `body` 本身就是 list**（没有 `.data` 层）；商品明细表（productTable）返回的 list **首行是 `$summary: true` 的合计行**，统计明细前先过滤
 - **月度口径基础体**（所有 lowcode 端点共用）：
 
 ```json
@@ -35,6 +36,16 @@
 | 行业子类目 | POST /api/lowcode/industrySummary/rank/subIndv2.ajax | `groups: ["saleOrdCate3"]` |
 | 广告概况 | POST /api/lowcode/flowSummary/ad/getAdSummaryAndTrend.ajax | 基础体（新快车口径） |
 | 店铺层级 | POST /api/lowcode/indexSummary/shopLevel.ajax | 基础体 |
+
+### 首页诊断/快照端点（2026-09 墨派实战新增）
+
+| 用途 | 端点 | 关键参数 / 说明 |
+| --- | --- | --- |
+| 首页商品诊断（官方预警） | POST /api/lowcode/indexSummary/analysis/getProductAnalysisData.ajax | `requestType: "rateDecline"`（转化下滑，dateType=d7 近7天）/ `"flowDecline"`（流量下滑，dateType=day 昨日）；`proType: "spu"`；返回按 `hb_ratio_*` 排序的预警清单，含 `proName/proUrl/spu_id` |
+| 首页流量诊断（渠道层） | POST /api/lowcode/indexSummary/analysis/getFlowAnalysisData.ajax | 同上两种 requestType；按渠道（`channel2Name`）给流量/转化预警 |
+| 首页今日快照 | POST /api/lowcode/indexSummary/summary.ajax | 商智首页默认实时口径；与月报 30 天口径不可比，只看方向 |
+
+注意：商品/流量诊断是**预警口径（昨日/近7天）**，只用来点名要处理的具体商品；月度结论一律用交易概览/商品明细整月口径。
 
 ### 搜索词榜特殊 filters 结构
 
@@ -77,7 +88,8 @@
 ### 通用要求
 
 - **响应结构**：`{"code": 1, "data": ...}`；code=1 成功
-- **坑**：账户报表数据在 `data.datas`，行业接口数据在 `data.rows`——用统一读 `datas` 的脚本重放行业接口时，日志会显示 rows=0 但实际成功，以 code 为准
+- **响应 shape 有三种**：账户/计划报表数据在 `data.datas`（list）；行业 whole/billboard/area 数据在 `data.rows`（list，月度汇总在 `data.summariesMap.TOTAL_SUMMARY`）；**热搜词榜/品牌榜的 `data` 本身就是 list**。用统一读 `datas` 的脚本重放行业接口时日志会显示 rows=0 但实际成功，以 code 为准
+- **账户余额（断投风险必查）**：`POST https://atoms-api.jd.com/financecore/subaccount/allbalance/get`，body `{}`，页面上下文内 XHR。响应 `data.cashBalance` 为现金余额；为 0 或接近 0 → 广告可能已断投，进「立即做」行动项（断投还会打断智能计划模型学习）。墨派实战中查到 cashBalance ¥0.00 而前一天仍有消耗，属典型断投前兆
 
 ### 账户报表（reweb/msa）——基础体
 
@@ -137,6 +149,10 @@ URL 统一追加 `?requestFrom=0&businessFrom=1`。**基础体缺一不可，缺
 - user/area：`mappedAreaName/impressionsExPercentage/ctr/cvs/orderPercentage`
 - chart：`name/type/value`，type 4 与 64 是平台两组推荐，页面标签映射未完全确认，报告表述为「平台推荐两组」
 
+### 流量来源口径限制
+
+商智 flowSource 端点 `channel: "app"` 时只返回 APP 渠道来源（墨派实战返回 12 行，最大到「店铺」等小渠道，无站外/PC 合并行）；报告数据说明要写清「本表只统计 APP 渠道」。
+
 ## 三、口径对照（报告第九部分必写）
 
 | 口径 | 说明 |
@@ -144,6 +160,7 @@ URL 统一追加 `?requestFrom=0&businessFrom=1`。**基础体缺一不可，缺
 | 商智「广告概况」 | 新快车口径 |
 | 京准通账户报表 | 广告点击 30 天内累计成交 |
 | 京准通首页今日快照 | 广告点击 15 天内累计成交，仅当日观察 |
+| 商智首页商品/流量诊断 | 昨日或近 7 天预警口径，仅点名问题商品，不做月度结论 |
 | 行业接口 | clickOrOrderDay=15 |
 
 金额单位元；环比 = 与对比期同日数对比（如 9.1–9.21 vs 8.1–8.21）。

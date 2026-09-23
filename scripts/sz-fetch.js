@@ -1,5 +1,6 @@
 ﻿const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { Cdp } = require('./cdp-lib.js');
 const CDP = process.env.SHOP_CDP || 'http://127.0.0.1:9224';
 const args = process.argv.slice(2);
@@ -15,25 +16,20 @@ const PAGE = getArg('--page', 'https://jdsz.jd.com/szweb/view/index/home.html');
   await cdp.send('Network.enable', {}, sessionId);
   await cdp.send('Page.enable', {}, sessionId);
 
-  // capture a real szgateway request's headers (kept in memory only)
-  const holder = { hdr: null };
-  cdp.on('Network.requestWillBeSent', (p, sid) => {
-    if (sid !== sessionId) return;
-    const u = p.request.url || '';
-    if (holder.hdr || !u.includes('szgateway')) return;
-    const h = p.request.headers || {};
-    const keep = {};
-    for (const k of ['User-mnp', 'User-mup', 'uuid', 'X-Requested-With', 'Accept']) {
-      const hit = Object.keys(h).find(x => x.toLowerCase() === k.toLowerCase());
-      if (hit) keep[k] = h[hit];
-    }
-    holder.hdr = keep;
-  }, sessionId);
 
   await cdp.navigate(sessionId, PAGE);
   await cdp.waitReady(sessionId, 12000, 150000);
-  if (!holder.hdr) { console.error('no szgateway headers captured'); await cdp.closeTarget(targetId); process.exit(2); }
-  console.log('captured header set:', Object.keys(holder.hdr).join(', '));
+  // szweb >=20260915 enforces per-request signature:
+  // User-mnp = md5(pathname + uuid + mup + secret)
+  const SZ_SIGN_SECRET = '372ad2c2b6';
+  const signedHeaders = (url) => {
+    const p = new URL(url).pathname;
+    const uuid = crypto.randomUUID();
+    const mup = String(Date.now());
+    const mnp = crypto.createHash('md5').update(p + uuid + mup + SZ_SIGN_SECRET).digest('hex');
+    return { uuid, 'User-mup': mup, 'User-mnp': mnp, 'X-Requested-With': 'XMLHttpRequest' };
+  };
+  console.log('signature mode: per-request md5 (szweb 20260915+)');
 
   const plan = JSON.parse(fs.readFileSync(PLAN, 'utf8'));
   const results = [];
@@ -42,7 +38,7 @@ const PAGE = getArg('--page', 'https://jdsz.jd.com/szweb/view/index/home.html');
       const r = await fetch(${JSON.stringify(call.url)}, {
         method: ${JSON.stringify(call.method || 'POST')},
         credentials: 'include',
-        headers: Object.assign({}, ${JSON.stringify(holder.hdr)}, { 'Content-Type': 'application/json;charset=UTF-8' }),
+        headers: Object.assign({}, ${JSON.stringify(signedHeaders(call.url))}, { 'Content-Type': 'application/json;charset=UTF-8' }),
         body: ${call.body === undefined ? 'undefined' : JSON.stringify(JSON.stringify(call.body))},
       });
       const t = await r.text();
@@ -58,7 +54,7 @@ const PAGE = getArg('--page', 'https://jdsz.jd.com/szweb/view/index/home.html');
     results.push({ name: call.name, url: call.url, code, len: res.text ? res.text.length : 0, error: res.error || null });
     if (OUT) { fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, call.name + '.json'), res.text || JSON.stringify(res), 'utf8'); }
   }
-  if (OUT) fs.writeFileSync(path.join(OUT, '_summary.json'), JSON.stringify({ calls: results, headerNames: Object.keys(holder.hdr) }, null, 2), 'utf8');
+  if (OUT) fs.writeFileSync(path.join(OUT, '_summary.json'), JSON.stringify({ calls: results, headerNames: ['uuid', 'User-mup', 'User-mnp', 'X-Requested-With'] }, null, 2), 'utf8');
   await cdp.closeTarget(targetId);
   cdp.close();
 })().catch(e => { console.error('FATAL', e.stack); process.exit(1); });
