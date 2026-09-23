@@ -1,0 +1,9 @@
+# 任务本地配置（含京准通账户号），绝不提交
+diagnosis-config.json
+
+# 生成的采集计划与原始数据
+plans/
+work/
+
+__pycache__/
+*.pyc

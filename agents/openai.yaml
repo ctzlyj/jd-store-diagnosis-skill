@@ -1,0 +1,3 @@
+display_name: 京麦店铺经营/广告数据诊断
+short_description: 商智+京准通全链路店铺诊断，输出可直发商家的 JoySpace 报告
+default_prompt: 诊断这家店铺的{月份}情况，出一份能直接发老板看的 JoySpace 诊断报告
