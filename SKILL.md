@@ -15,7 +15,7 @@ description: 京东POP店铺月度经营+广告全链路数据诊断。给定目
 
 ### 取数模式先判定
 
-- **模式 A（默认）**：商家已开通京麦后台数据权限 → 本文六步流程，商智 jdsz.jd.com + 京准通 jzt.jd.com，细节见 `references/api-reference.md`
+- **模式 A（默认）**：商家已开通京麦后台数据权限 → 本文六步流程，商智 jdsz.jd.com + 京准通 jzt.jd.com，细节见 `references/api-reference.md`；涉及「稳赚计划」诊断/投放建议时，机制与采集接口见 `references/surewin-mechanism.md`（`scripts/surewin-probe.js` 一键采集全店 SPU 的 ROI 上限/赔付出价上限/每轮门槛）
 - **模式 B**：商家**没有**京麦后台数据权限（拿不到店铺专用 profile、进不了 jdsz/jzt），但内部黄金眼 ge.jd.com 能查到这家店 → 按 `references/ge-shop-insight.md` 走「黄金眼店铺看板 → getAuthorityToSz 换代理旧商智」链路，用 `scripts/ge-sz-fetch.py` 采集（headless，不碰用户浏览器、不用 9224）。模式 B 下京准通计划/单元/关键词明细拿不到，广告只能给到商智口径的产品线与广告汇总，报告里必须坦诚写清看不到什么、为什么
 - 两种模式的硬约束、分析要求（第 5 步）、报告与发布要求（第 6 步）完全一致，只是数据源不同；模式 B 不走第 1–4 步（无需店铺浏览器 / zguard）
 
