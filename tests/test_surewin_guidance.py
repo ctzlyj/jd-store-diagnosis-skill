@@ -2,7 +2,8 @@
 
 Locks in: (1) suggested ROI is never presented as a click bid, (2) the three
 different numbers stay distinguishable, (3) whitepaper-sourced rules stay
-separated from local inference, (4) no shop/SPU identifier leaks into the repo.
+separated from local inference, (4) no shop/SPU identifier leaks into the repo,
+(5) ad spend is split between red-packet (virtual credit) and cash calibers.
 """
 from pathlib import Path
 import unittest
@@ -10,6 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 GUIDE = (ROOT / "references" / "surewin-mechanism.md").read_text(encoding="utf-8")
 SKILL = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+COLDSTART = (ROOT / "references" / "ad-cold-start.md").read_text(encoding="utf-8")
 
 
 class SureWinGuidanceTest(unittest.TestCase):
@@ -56,6 +58,12 @@ class SureWinGuidanceTest(unittest.TestCase):
     def test_repo_contains_no_shop_specific_identifier(self):
         self.assertNotIn("100361", GUIDE)
         self.assertNotIn("云擎", GUIDE)
+
+    def test_ad_cost_is_split_between_redpacket_and_cash_calibers(self):
+        self.assertIn("红包/虚拟金", SKILL)
+        self.assertIn("「是否亏钱」结论均按红包/现金分别表述", SKILL)
+        self.assertIn("红包低效", COLDSTART)
+        self.assertIn("现金亏损", COLDSTART)
 
 
 if __name__ == "__main__":
