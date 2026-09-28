@@ -37,6 +37,17 @@
 | 广告概况 | POST /api/lowcode/flowSummary/ad/getAdSummaryAndTrend.ajax | 基础体（新快车口径） |
 | 店铺层级 | POST /api/lowcode/indexSummary/shopLevel.ajax | 基础体 |
 
+### 新开店铺的接口差异（2026-09 云擎四店实战验证）
+
+全新店铺（商智 7/8 月零数据、当月首经营）的商智网关按「新账号态」处理请求，与老店不同：
+
+- **tradeSummary/summary 不传 `indicators` → `code=0` 但 `size=0, data=null`**，极易误判成"该店无成交"；显式传 `indicators` 数组后正常返回。`##compare` 后缀指标在这类店返回 null（无对比期），直接用起止日单查对比月
+- **indexSummary/summary 不传 `indicators` → 10001「indicators不能为空」**（老店不传也行，新店必传）
+- **flowSource/sourceTable 一律 10001 参数校验不通过**（多种 indicators 组合均复现，未解），这类店报告需写明"流量渠道拆分缺失"
+- **industrySummary 20001 ajax无权限**（店级权限），行业对照改走京准通行业接口（cid3 用 ind-kw-sku 空 cid3 拿 skuCid3 定位）
+- productTable、search-kw（offlineKeywordRank）、flowSummary/getCoreSummary、advertSummary 均正常
+- 探测新店顺序：productTable（真实成交+类目）→ 7/8 月单查（确认新店、无环比）→ 显式 indicators 补 summary
+
 ### 首页诊断/快照端点（2026-09 墨派实战新增）
 
 | 用途 | 端点 | 关键参数 / 说明 |

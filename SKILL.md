@@ -95,16 +95,21 @@ node scripts/jzt-run.js --plan work/plans/plan-jzt-industry.json --out work/jzt-
 
 ## 常见坑
 
+- **切店必须换干净浏览器**：`restart-shop-browser.ps1` 旧版只清理同名 profile 的旧进程；换下一家店时，上一家店的 Chrome 仍占着 9224 端口，新实例绑定失败、就绪检查命中旧实例，后续所有采集会**打到上一家店**（2026-09 云擎四店实战踩中，靠 logininfo pin 对不上才发现）。现行脚本已自动清理端口占用者并在就绪后核验 profile 归属；多店批量任务仍应在每店开跑前用 `common/logininfo` 回读 pin 核对一次身份。
+- **含中文的 .ps1 必须存 UTF-8 with BOM**：PowerShell 5.1 对无 BOM 文件按 ANSI/GBK 解析，中文注释的乱码会**静默破坏后续语句的执行**（2026-09 实测：同一段过滤逻辑，无 BOM 版 `$mine` 判空、加 BOM 后正常；去掉中文注释也正常）。用 apply_patch 等编辑器改完 .ps1 后必须补 BOM（`[IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($true)))`）
 - PowerShell 写 JSON 计划必须无 BOM：用 `[IO.File]::WriteAllText` 配 `UTF8Encoding($false)`；make_plans.py 已处理
 - PowerShell 下 python 内联脚本读中文路径会 GBK 乱码报错（路径变 `??`）：改用相对路径，或设 `PYTHONUTF8=1`
+- **全新店铺的商智接口按「新账号态」返回**（2026-09 云擎四店验证）：tradeSummary 不传 `indicators` 返回 `size=0/data=null`（易误判为无成交）、indexSummary 直接报「indicators不能为空」——两者都必须显式传 `indicators` 数组；flowSource 对这类店一律 10001 参数校验不通过（未解，报告写明渠道拆分缺失）；行业大盘 20001 无权限（店级权限，行业对照改用京准通行业接口）。探测顺序：先用 productTable 拿真实成交与类目，再用 7/8 月单查确认是否新店，再补显式 indicators
+- **京准通分日报表 `obys` 不支持 `day`**：make_plans 旧版生成 `day|asc` 会 400「入参obys排序错误」，已改 `cost|desc`（isDaily=True 已按日分行）；跨店复用计划文件时注意 `pinIds` 是生成时的店铺账户号，换店必须重新生成，否则 400
 - 商智/京准通口径不同（新快车 vs 广告点击 30 天累计），报告数据说明必须写口径说明
 - 行业接口缺 `clickOrOrderCaliber/clickOrOrderDay/giftFlag/orderStatusCategory` 会 400「跟单口径缺失」
 - 京准通 cid3 与商智 cid2 不是同一 ID 体系，分别从各自页面查
 - 首页「今日快照」是 15 天口径，与月报 30 天口径不可比，只作观察
 - zguard 循环约 30 分钟有效期，长任务中途过期就重启一次
+- **账户余额 XHR 重放不可用**（`financecore/*/allbalance/get` 返回 -2011 loginMode is null）：可靠做法是后台标签导航 `jzt.jd.com/home` 读 DOM 文本里的「投放账户总余额/可用余额」（dongyue/home-balance.js、tools/jzt-balance.js 模式）
 - **已发布报告要修改时，不要拿 JoySpace `read`/`export` 导出的 md 回灌**：导出会把 Slate 表格变成 HTML，`replace_doc.py` 回灌后表格就废了。正确做法：改本地原始 md 源稿 → 整篇 `replace_doc.py` 重新覆盖 → 因为整篇替换会干掉文末附件块，最后重新 `edit_body.py insert-attachment --no-summary` 补回 Excel；另外 `replace_doc.py` 不改外部显示标题，必要时用 `rename` 恢复
 - **PowerShell 下 `replace_doc.py` / `edit_body.py` 退出码 1 是假阳性**（stderr 有输出就被当失败）：别看 exit code，看输出里的 `[ok]`、`verified: true`、`summaryCommentId: null` 和读回字符数判定成败
 
 ## 迭代
 
-本 Skill 源自 2026-09 淡雅装饰画甄选店、墨派风画舍、京韵丹青装饰画店、冬月、全球锦宏优选（首例模式 B：无京麦权限，黄金眼 + 代理旧商智）、惠民日用供应链经营部（模式 B 第二例，部门类目构成因店而异的坑）六次全链路实战（含 szweb 新版签名破解、京准通三种响应 shape、账户余额断投核查、行业大盘/品牌榜/热词榜、Excel 十表、JoySpace 发布链）。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。
+本 Skill 源自 2026-09 淡雅装饰画甄选店、墨派风画舍、京韵丹青装饰画店、冬月、全球锦宏优选（首例模式 B：无京麦权限，黄金眼 + 代理旧商智）、惠民日用供应链经营部（模式 B 第二例，部门类目构成因店而异的坑）、云擎Ai供应链/云擎生活/云擎云仓/吖嘟咪（同一商家四店批量横评：新店商智接口态、切店端口串店、京准通分日 obys、ps1 无 BOM 静默失效）十次全链路实战（含 szweb 新版签名破解、京准通三种响应 shape、账户余额断投核查、行业大盘/品牌榜/热词榜、Excel 十表、JoySpace 发布链）。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。

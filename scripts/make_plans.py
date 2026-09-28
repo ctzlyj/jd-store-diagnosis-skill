@@ -117,8 +117,9 @@ def build_jzt_report_plan(c):
         calls.append(dict(name="jzt-account-%s" % tag, url=JZT + "/reweb/msa/base/account/list",
                           body=dict(jzt_base(c, s, e), obys="cost|desc")))
     # 分日趋势（isDaily=True）
-    calls.append(dict(name="jzt-account-daily", url=JZT + "/reweb/msa/base/account/list",
-                      body=dict(jzt_base(c), isDaily=True, obys="day|asc", pageSize=100)))
+# obys 不支持按 'day' 排序（400 入参obys排序错误），用 cost|desc；isDaily=True 已按日分行
+calls.append(dict(name="jzt-account-daily", url=JZT + "/reweb/msa/base/account/list",
+    body=dict(jzt_base(c), isDaily=True, obys="cost|desc", pageSize=100)))
     # 计划明细
     for tag, s, e in (("sep", c["start_date"], c["end_date"]), ("aug", c["compare_start"], c["compare_end"])):
         calls.append(dict(name="jzt-campaign-%s" % tag, url=JZT + "/reweb/msa/base/campaign/list",
