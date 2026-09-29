@@ -15,13 +15,14 @@ description: 京东POP店铺月度经营+广告全链路数据诊断。给定目
 
 ### 取数模式先判定
 
-- **模式 A（默认）**：商家已开通京麦后台数据权限 → 本文六步流程，商智 jdsz.jd.com + 京准通 jzt.jd.com，细节见 `references/api-reference.md`；涉及「稳赚计划」诊断/投放建议时，机制与采集接口见 `references/surewin-mechanism.md`（`scripts/surewin-probe.js` 采集 ROI 建议档、参与上限与每轮消耗门槛；建议档、参与上限与每轮消耗门槛是三个不同的数，均为目标投产比口径，**不是点击出价**；`refundLimitPrice` 按白皮书「投产比最高建议值」推断为享受赔付的目标 ROI 上限，需按参考文档的待验证清单实测后才可下结论）
+- **模式 A（默认）**：商家已开通京麦后台数据权限 → 本文六步流程，商智 jdsz.jd.com + 京准通 jzt.jd.com，细节见 `references/api-reference.md`；涉及「稳赚计划」诊断/投放建议时，机制与采集接口见 `references/surewin-mechanism.md`（`scripts/surewin-probe.js` 采集 ROI 建议档、参与上限与每轮消耗门槛；建议档、参与上限与每轮消耗门槛是三个不同的数，均为目标投产比口径，**不是点击出价**；cap 刷新节奏、rt=80 资格推荐池、cap/门槛变动归因流程（先查改价→实时订单→品退）、补单证据纪律均见该参考文档；机制结论区分【官方】/【已验证-本地】/【推断】，推断未实测前不得写给商家当结论）
 - **模式 B**：商家**没有**京麦后台数据权限（拿不到店铺专用 profile、进不了 jdsz/jzt），但内部黄金眼 ge.jd.com 能查到这家店 → 按 `references/ge-shop-insight.md` 走「黄金眼店铺看板 → getAuthorityToSz 换代理旧商智」链路，用 `scripts/ge-sz-fetch.py` 采集（headless，不碰用户浏览器、不用 9224）。模式 B 下京准通计划/单元/关键词明细拿不到，广告只能给到商智口径的产品线与广告汇总，报告里必须坦诚写清看不到什么、为什么
 - 两种模式的硬约束、分析要求（第 5 步）、报告与发布要求（第 6 步）完全一致，只是数据源不同；模式 B 不走第 1–4 步（无需店铺浏览器 / zguard）
 
 ## 硬约束（每次都必须遵守）
 
 1. **绝不抢占用户工作界面**：所有页面操作用后台标签（createTab 第三参 background=true），标签用完关闭；启动 zguard 循环守卫把店铺浏览器窗口压到底层；绝不切换/导航用户正在用的浏览器
+   - **例外=店铺浏览器窗口接管（仅限用户明确授权过的店铺 profile，2026-09-29 用户授权云擎四店+圣迪欧）**：定时采集或处理这些店铺的任务时，遇到店铺浏览器窗口开着，先**优雅关闭可见窗口**（WM_CLOSE，15 秒未退再强制）→ 拉起 headless 执行 → 任务结束**按原启动页重新打开**（多标签无法精确恢复，Ctrl+Shift+T 可找回）。只动已授权店铺 profile 的窗口；未授权店铺、用户个人浏览器仍然绝不触碰
 2. **凭证不落盘**：Cookie/Token 不进源码、日志、报告、截图、Git；请求头在内存中生成/捕获使用（sz-fetch.js 已如此实现）
 3. **报告零 AI 痕迹**：报告是运营顾问一对一写给商家老板的汇报，要让老板觉得是人认真写的、很重视他。核心要求：结论先行、行动清单紧跟结论放前面（老板没耐心看长文）、每个结论和动作挂数字依据、看不到的数据坦诚说明、不过度承诺；交付前自查一遍有没有 AI 腔，JoySpace 发布后评论数必须为 0。措辞、结构、口吻由你自由发挥，不套模板
 4. **可回溯**：config、计划、原始数据留在任务 work/ 目录，报告中的每个数字都能回查
@@ -72,6 +73,33 @@ node scripts/jzt-run.js --plan work/plans/plan-jzt-industry.json --out work/jzt-
 - 校验：`code == 1` 即成功。**响应 shape 有三种**：账户报表数据在 `data.datas`；行业 whole/billboard/area 数据在 `data.rows`（月度汇总在 `data.summariesMap.TOTAL_SUMMARY`）；热搜词榜/品牌榜 `data` 本身是 list。脚本日志 rows=0 有误导，先看 code 再解析 body
 - **账户余额必查（断投风险）**：`POST https://atoms-api.jd.com/financecore/subaccount/allbalance/get`（body `{}`，页面上下文内 XHR）。cashBalance 为 0 或接近 0 → 广告可能已断投，必须进「立即做」行动项——断投不只是丢当天订单，智能计划的模型学习也会被打断
 
+### 4b. 实时订单查询（当日数据，归因/核验专用）
+
+商智是 T+1/快照口径、京准通报表是点击归因延迟口径——回答「**今天/刚才发生了什么**」（当日成交归因、稳赚 cap 当日变动归因、活动实时效果核验、商家口头反馈对不上报表）时，必须用京麦订单列表的实时接口，禁止拿商智快照当实时证据下结论。
+
+```powershell
+node scripts/probe-orders.js <cdp端口> <输出目录>   # 默认订单列表页 allOrders
+```
+
+- 原理：后台标签打开 `shop.jd.com/jdm/trade/orders/order-list?tabType=allOrders`，截获页面自己的 `dsm.order.bff.orderListBffService.queryOrderPage` 响应（结构化、50 条/页、最新在前）
+- 解析要点：`body.body`（JSON 字符串）→ `data.results[]`：`orderCreateTime/paymentConfirmTime/orderCompleteTime`（毫秒时间戳）、`orderItems[].skuId/jdPrice/num`、`orderStatusInfo.orderStatusName`（已完成/已取消/已出库）
+- 已验证场景（2026-09-28，稳赚 cap 归因）：商智显示「09-23 以来仅 1 件 41.82」，实时订单页实为「当日 21 笔 51.8–70.8 元」——T+1 快照把归因引向完全错误的方向
+- 只读探测；订单含买家个人信息，原始响应仅留在任务 work/ 目录，不进报告/Git/日志
+
+### 4c. 普惠到手价查询（广告定价口径，投放/调价前必查）
+
+**ROI、广告出价、点击成本的定价依据一律用「普惠到手价」，禁止用京东价。** 京东价只是展示价（例：云仓主投 SKU 京东价 60.8、到手 43.86，按京东价定价会把承受力高估 1.4 倍）；系统建议出价/推荐 ROI 是平台口径，不能直接抄。到手价随促销活动变动，每次开计划、调价、做投放方案前实时查询。
+
+```powershell
+node scripts/probe-arrival-price.js <cdp端口> <输出目录>   # 输出 all-skus.json（全店分页拉全）
+```
+
+- 原理：后台标签打开 `shop.jd.com/jdm/mkt/market/market-risk`（京麦 → 营销 → 促销工具 → 营销价格管理），页面上下文内 fetch `dsm.market.tool.common.api.PriceQueryOuterService.queryPriceInfoList`（`params` 支持 `pageIndex/pageSize/spuIds/skuIds` 过滤；无需 h5st，2026-09-29 实测 status 200）
+- 关键字段：`perfectArrivalPrice`=普惠到手价（真实回款口径）、`jdPrice`=京东价、`minPrice`=理论最低价、`skuName/attrValueAlias`=规格；`wareId`=SPU
+- 出价公式（用户确认）：**出价 ≤ 到手价 × 20% × 该词CVR**（单均广告成本 = 出价÷CVR ≤ 到手价×20%）；20% 低于已确认毛利 34.5%（云仓），留安全垫。低于 0.8 元起投下限的词删，不硬投；**京准通关键词计划系统最低日预算 50，不要再给低于 50 的预算建议**（2026-09-29 用户红线，原低于 50 的计划已全部提到 50）
+- 关键词计划配套纪律（2026-09-29 四店实战定型）：控点击成本(CPC) + 切词匹配 + 否定词兜底；单均成本超线不加价；礼物类高价词全删；方案与报告中的关键词预算一律 ≥50，勿自相矛盾
+- 只读探测，不创建/修改任何促销
+
 ### 5. 分析（结论导向）
 
 怎么组织、怎么措辞由你自由发挥，但产出必须满足：
@@ -100,6 +128,9 @@ node scripts/jzt-run.js --plan work/plans/plan-jzt-industry.json --out work/jzt-
 - **含中文的 .ps1 必须存 UTF-8 with BOM**：PowerShell 5.1 对无 BOM 文件按 ANSI/GBK 解析，中文注释的乱码会**静默破坏后续语句的执行**（2026-09 实测：同一段过滤逻辑，无 BOM 版 `$mine` 判空、加 BOM 后正常；去掉中文注释也正常）。用 apply_patch 等编辑器改完 .ps1 后必须补 BOM（`[IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($true)))`）
 - PowerShell 写 JSON 计划必须无 BOM：用 `[IO.File]::WriteAllText` 配 `UTF8Encoding($false)`；make_plans.py 已处理
 - PowerShell 下 python 内联脚本读中文路径会 GBK 乱码报错（路径变 `??`）：改用相对路径，或设 `PYTHONUTF8=1`
+- **PowerShell 命令行传中文会被安全层间歇性吃成 `?`，且 `?` 在 `-like` 里是单字符通配符**（2026-09-29 实测：中文 profile 名损坏后，任意店窗口开着都误判 profile 占用）：中文参数/路径不要经命令行传递——从配置文件读取或用 glob；PowerShell spawn 与 stdin 管道传中文同样会损坏。详见 skill `o2-windows-runtime` 的完整沉淀
+- **任务/采集结束必须释放 headless 占用的店铺 profile**：headless Chrome 实例锁住 profile 后，商家/用户打不开该店铺浏览器窗口会被卡住。长采集脚本结束时显式关闭自己拉起的 headless 实例；接管的可见窗口按授权规则重新打开
+- **PowerShell 命令行传中文会被安全层间歇性吃成 `?`，且 `?` 在 `-like` 里是单字符通配符**（2026-09-29 实测：中文 profile 名损坏后，任意店窗口开着都误判 profile 占用）：中文参数/路径不要经命令行传递——从配置文件读取或用 glob；PowerShell spawn 与 stdin 管道传中文同样会损坏。详见 skill `o2-windows-runtime` 的完整沉淀
 - **全新店铺的商智接口按「新账号态」返回**（2026-09 云擎四店验证）：tradeSummary 不传 `indicators` 返回 `size=0/data=null`（易误判为无成交）、indexSummary 直接报「indicators不能为空」——两者都必须显式传 `indicators` 数组；flowSource 对这类店一律 10001 参数校验不通过（未解，报告写明渠道拆分缺失）；行业大盘 20001 无权限（店级权限，行业对照改用京准通行业接口）。探测顺序：先用 productTable 拿真实成交与类目，再用 7/8 月单查确认是否新店，再补显式 indicators
 - **京准通分日报表 `obys` 不支持 `day`**：make_plans 旧版生成 `day|asc` 会 400「入参obys排序错误」，已改 `cost|desc`（isDaily=True 已按日分行）；跨店复用计划文件时注意 `pinIds` 是生成时的店铺账户号，换店必须重新生成，否则 400
 - 商智/京准通口径不同（新快车 vs 广告点击 30 天累计），报告数据说明必须写口径说明
@@ -113,4 +144,4 @@ node scripts/jzt-run.js --plan work/plans/plan-jzt-industry.json --out work/jzt-
 
 ## 迭代
 
-本 Skill 源自 2026-09 淡雅装饰画甄选店、墨派风画舍、京韵丹青装饰画店、冬月、全球锦宏优选（首例模式 B：无京麦权限，黄金眼 + 代理旧商智）、惠民日用供应链经营部（模式 B 第二例，部门类目构成因店而异的坑）、云擎Ai供应链/云擎生活/云擎云仓/吖嘟咪（同一商家四店批量横评：新店商智接口态、切店端口串店、京准通分日 obys、ps1 无 BOM 静默失效）十次全链路实战（含 szweb 新版签名破解、京准通三种响应 shape、账户余额断投核查、行业大盘/品牌榜/热词榜、Excel 十表、JoySpace 发布链）。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。
+本 Skill 源自 2026-09 淡雅装饰画甄选店、墨派风画舍、京韵丹青装饰画店、冬月、全球锦宏优选（首例模式 B：无京麦权限，黄金眼 + 代理旧商智）、惠民日用供应链经营部（模式 B 第二例，部门类目构成因店而异的坑）、云擎Ai供应链/云擎生活/云擎云仓/吖嘟咪（同一商家四店批量横评：新店商智接口态、切店端口串店、京准通分日 obys、ps1 无 BOM 静默失效）、稳赚计划机制专项探索（五店 69 SPU：cap 决定因子与门槛公式、rt=80 资格推荐池、日内刷新与模型侧重算归因、补单证据纪律）十次全链路实战（含 szweb 新版签名破解、京准通三种响应 shape、账户余额断投核查、行业大盘/品牌榜/热词榜、Excel 十表、JoySpace 发布链）。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。
