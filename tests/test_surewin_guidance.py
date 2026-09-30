@@ -43,7 +43,10 @@ class SureWinGuidanceTest(unittest.TestCase):
         self.assertIn("【推断】", GUIDE[idx : idx + 1200])
         self.assertNotIn("超过部分不赔", GUIDE)
         self.assertNotIn("已破解", GUIDE)
-        self.assertNotIn("顶格", GUIDE)
+        # 「顶格」只允许出现在待验证清单的 2026-09-28 用户实测纠正
+        # （填到 cap 顶格可正常创建）里；推断链本身不得使用「顶格/已破解」
+        # 这类破解式措辞。
+        self.assertNotIn("顶格", GUIDE[idx : idx + 1200])
 
     def test_keyword_mode_is_not_promised_as_available(self):
         self.assertIn("互斥", GUIDE)
@@ -53,7 +56,9 @@ class SureWinGuidanceTest(unittest.TestCase):
     def test_guarantee_is_not_sold_as_risk_free_profit(self):
         self.assertIn("保的是「亏损上限」", GUIDE)
         self.assertIn("站内红包", GUIDE)
-        self.assertIn("不得刷单", GUIDE)
+        # 2026-09-29 用户红线：指南不得出现「刷单」措辞，一律用「真实成交」表述。
+        self.assertNotIn("刷单", GUIDE)
+        self.assertIn("真实成交", GUIDE)
 
     def test_repo_contains_no_shop_specific_identifier(self):
         self.assertNotIn("100361", GUIDE)

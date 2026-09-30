@@ -206,7 +206,7 @@ GET https://jzt-api.jd.com/cms/content?contentId=<contentId>
 - 预算建议：`POST /dspad/common/suggest/campaign/budget`；账户活动态：`POST /dspad/sure/win/activity/info`。
 - 白皮书正文：`GET https://jzt-api.jd.com/cms/content?contentId=19372`（匿名）。
 
-红线：复用已授权登录态和受控后台页，不干扰用户工作浏览器；Cookie、Token、账号原始响应不入 Git/日志/报告；不代用户创建计划、充值、改价、刷单；写入结果不明先回查再决定是否重试。
+红线：复用已授权登录态和受控后台页，不干扰用户工作浏览器；Cookie、Token、账号原始响应不入 Git/日志/报告；不代用户创建计划、充值、改价，补单一律走真实成交（纪律见「补单与证据注入纪律」节）；写入结果不明先回查再决定是否重试。
 
 ### 定价口径：一律按普惠到手价（2026-09-29 用户红线，实测）
 
@@ -242,6 +242,7 @@ GET https://jzt-api.jd.com/cms/content?contentId=<contentId>
 
 归因顺序（手册级纪律）：**先查改价 → 再查实时订单 → 再看品退**；对照组逻辑 = 零订单 SPU 应不动。
 
+0. **协同投放排查**：先确认该店是否有采销 C+A 协同对投（比例对投/稳赚联投；cxjzt 后台只读核验，见 SKILL.md 4d）。协同加价产生的成交是真实成交、可能触发 cap 刷新（待验证），归因时须把协同单从「商家动作→成交」因果链中剥离；「稳赚联投」还会直接抬高指定稳赚品 ROI 上限，实验期间视为污染源。
 1. **改价**：全店到手价快照对比（`probe-arrival-price.js`，两次读数逐 SKU 比对 jdPrice/arrivalPrice/perfectArrivalPrice/stockNum）。若 cap 与门槛**同向变动**，先怀疑改价——隐含价 = 门槛×cap/5，可与现价互验。**国补/直降不改京东价**（支付端优惠），按假设不应引发 cap/门槛变动（待验证）。
 2. **实时成交**：`probe-orders.js` 查当日新订单（**商智 T+1 不能当实时证据**）。
 3. **品退/售后**：核对变动 SPU 当日售后记录。
