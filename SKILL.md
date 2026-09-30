@@ -146,6 +146,7 @@ node scripts/probe-arrival-price.js <cdp端口> <输出目录>   # 输出 all-sk
 - PowerShell 下 python 内联脚本读中文路径会 GBK 乱码报错（路径变 `??`）：改用相对路径，或设 `PYTHONUTF8=1`
 - **PowerShell 命令行传中文会被安全层间歇性吃成 `?`，且 `?` 在 `-like` 里是单字符通配符**（2026-09-29 实测：中文 profile 名损坏后，任意店窗口开着都误判 profile 占用）：中文参数/路径不要经命令行传递——从配置文件读取或用 glob；PowerShell spawn 与 stdin 管道传中文同样会损坏。详见 skill `o2-windows-runtime` 的完整沉淀
 - **任务/采集结束必须释放 headless 占用的店铺 profile**：headless Chrome 实例锁住 profile 后，商家/用户打不开该店铺浏览器窗口会被卡住。长采集脚本结束时显式关闭自己拉起的 headless 实例；接管的可见窗口按授权规则重新打开
+- **给「尚未进采集配置」的店铺做一次性探测时，`release_store_browsers()` 帮不上忙**：它只遍历配置内的店铺（2026-09-30 紫气企业店接入实测：jzt 未激活探测失败后，配置外的 9235 headless 实例残留锁 profile，用户打不开店铺窗口）。任务局部脚本必须在自己的 `finally` 里按 profile 路径 + `--headless` 显式清理自己拉起的实例，不能依赖按配置遍历的释放函数
 - **PowerShell 命令行传中文会被安全层间歇性吃成 `?`，且 `?` 在 `-like` 里是单字符通配符**（2026-09-29 实测：中文 profile 名损坏后，任意店窗口开着都误判 profile 占用）：中文参数/路径不要经命令行传递——从配置文件读取或用 glob；PowerShell spawn 与 stdin 管道传中文同样会损坏。详见 skill `o2-windows-runtime` 的完整沉淀
 - **全新店铺的商智接口按「新账号态」返回**（2026-09 云擎四店验证）：tradeSummary 不传 `indicators` 返回 `size=0/data=null`（易误判为无成交）、indexSummary 直接报「indicators不能为空」——两者都必须显式传 `indicators` 数组；flowSource 对这类店一律 10001 参数校验不通过（未解，报告写明渠道拆分缺失）；行业大盘 20001 无权限（店级权限，行业对照改用京准通行业接口）。探测顺序：先用 productTable 拿真实成交与类目，再用 7/8 月单查确认是否新店，再补显式 indicators
 - **京准通分日报表 `obys` 不支持 `day`**：make_plans 旧版生成 `day|asc` 会 400「入参obys排序错误」，已改 `cost|desc`（isDaily=True 已按日分行）；跨店复用计划文件时注意 `pinIds` 是生成时的店铺账户号，换店必须重新生成，否则 400
