@@ -18,6 +18,7 @@ description: 京东POP店铺月度经营+广告全链路数据诊断。给定目
 - **模式 A（默认）**：商家已开通京麦后台数据权限 → 本文六步流程，商智 jdsz.jd.com + 京准通 jzt.jd.com，细节见 `references/api-reference.md`；涉及「稳赚计划」诊断/投放建议时，机制与采集接口见 `references/surewin-mechanism.md`（`scripts/surewin-probe.js` 采集 ROI 建议档、参与上限与每轮消耗门槛；建议档、参与上限与每轮消耗门槛是三个不同的数，均为目标投产比口径，**不是点击出价**；cap 刷新节奏、rt=80 资格推荐池、cap/门槛变动归因流程（先查改价→实时订单→品退）、补单证据纪律均见该参考文档；**账面 ROI 按京东价口径（2026-09-30 确认），支付端优惠/焕新补贴报名前必须过盈亏线：cap ≥ 1/(实收毛利×(1−商家承担优惠深度)) 才可投**；机制结论区分【官方】/【已验证-本地】/【推断】，推断未实测前不得写给商家当结论）
 - **模式 B**：商家**没有**京麦后台数据权限（拿不到店铺专用 profile、进不了 jdsz/jzt），但内部黄金眼 ge.jd.com 能查到这家店 → 按 `references/ge-shop-insight.md` 走「黄金眼店铺看板 → getAuthorityToSz 换代理旧商智」链路，用 `scripts/ge-sz-fetch.py` 采集（headless，不碰用户浏览器、不用 9224）。模式 B 下京准通计划/单元/关键词明细拿不到，广告只能给到商智口径的产品线与广告汇总，报告里必须坦诚写清看不到什么、为什么
 - 两种模式的硬约束、分析要求（第 5 步）、报告与发布要求（第 6 步）完全一致，只是数据源不同；模式 B 不走第 1–4 步（无需店铺浏览器 / zguard）
+- **采集工具优先级（2026-10-08 用户定规，长期遵守）**：京麦域任务**优先走京麦 CLI（jdo-cli）的官方接口**（约 189 个），官方 CLI 没有对应接口或当前账号无权调用时，才降级为浏览器页面接口（CDP 截获/页面内 fetch）。原因：浏览器高频页面接口会触发账号风控（shop.jd.com queryOrderPage 601 实例）；CLI 官方接口通道独立、风险低。降级时必须沿用各节的「风控降级路径」，禁止反复重试被风控的页面接口。各业务域对应的 jdo 能力见各节标注（如订单见 4b 的 `jdo-order-manage`）。
 
 ## 硬约束（每次都必须遵守）
 
@@ -77,6 +78,28 @@ node scripts/jzt-run.js --plan work/plans/plan-jzt-industry.json --out work/jzt-
 
 商智是 T+1/快照口径、京准通报表是点击归因延迟口径——回答「**今天/刚才发生了什么**」（当日成交归因、稳赚 cap 当日变动归因、活动实时效果核验、商家口头反馈对不上报表）时，必须用京麦订单列表的实时接口，禁止拿商智快照当实时证据下结论。
 
+**第一优先：京麦 CLI 官方接口 `jdo-order-manage`（订单管理，读+写，2026-10-08 用户提供）**：
+
+| 场景 | API |
+| --- | --- |
+| 订单列表查询（按状态/时间分页，返回字段可自选） | `GET.sp-order.v0.orders` |
+| 修改商家备注及旗标颜色 | `PUT.sp-order.v0.orders._orderId.vender-remarks` |
+| 修改收货人/电话/地址（仅 SOP 等待出库状态） | `PUT.sp-order.v0.orders._orderId.consignees` |
+| 按 SKU 分组拆成子单 | `POST.sp-order.v0.orders._orderId.child-orders` |
+
+列表查询返回很全：订单状态、SKU 明细、支付信息（含 `actualPayAmount`=实付、`shouldPayAmount`）、收货人、配送方式、发票、买家/商家备注、售后单等。诊断/归因场景只用读接口（GET.sp-order.v0.orders），写接口不在本 Skill 范围。
+
+**已实测可用（2026-10-08，云擎云仓/Ai/生活三店）**，调用模板与踩坑：
+```powershell
+jdo-cli invoke --url /rest/sp-order/v0/orders --method GET --profile <profile名> --params '<JSON>'
+# params 必填项缺一不可（逐个报错提示）：page、pageSize(≤100)、sortBy(createdTime|modifiedTime)、sortOrder(ASC|DESC)、orderStatus(ALL)
+# 可选：startTime/endTime(毫秒，按 sortBy 字段检索，窗口≤1个月)、scopeSet=["paymentInfo","skuItemInfoList","orderFlag"]
+# 返回：orderId/createdTime/orderStatusDesc/paymentInfo.actualPayAmount(实付)/skuItemInfoList(含SKU名、促销明细)/orderFlag
+# 焕新补贴订单在 orderExt.govSubsidyInfo 带「下单立减」标记，可识别补贴单
+```
+- profile 对应店铺（本机 `~/.jdo-cli/profiles/`）；若报 10201001005「页码小于1或者太大」，是调用方漏传了 `page` 必填参数，**不是权限问题**，补上 `page` 后重试即可（2026-10-08 吖嘟咪实测：漏传 page 报此错，补传后正常返回）。若真返回 403「无权限调用」，先核对是不是用了子账号 profile，主账号 profile 通常有全店权限
+- actualPayAmount 可用于真实盈亏核算（实付/消耗），与报表京东价口径互为补充
+
 ```powershell
 node scripts/probe-orders.js <cdp端口> <输出目录>   # 默认订单列表页 allOrders
 ```
@@ -85,6 +108,7 @@ node scripts/probe-orders.js <cdp端口> <输出目录>   # 默认订单列表�
 - 解析要点：`body.body`（JSON 字符串）→ `data.results[]`：`orderCreateTime/paymentConfirmTime/orderCompleteTime`（毫秒时间戳）、`orderItems[].skuId/jdPrice/num`、`orderStatusInfo.orderStatusName`（已完成/已取消/已出库）
 - 已验证场景（2026-09-28，稳赚 cap 归因）：商智显示「09-23 以来仅 1 件 41.82」，实时订单页实为「当日 21 笔 51.8–70.8 元」——T+1 快照把归因引向完全错误的方向
 - 只读探测；订单含买家个人信息，原始响应仅留在任务 work/ 目录，不进报告/Git/日志
+- **风控降级路径（2026-10-03 验证；2026-10-08 更新层级）**：shop.jd.com queryOrderPage 若返回 code=601 风控（提示「明天尝试正常浏览」），**不要反复重试刷接口**——降级顺序：①京麦 CLI `jdo-order-manage` `GET.sp-order.v0.orders`（首选，先做小样本实测）；②商智订单明细页 `jdsz.jd.com/szweb/view/tradeAnalysis/orderDetails.html`：页面自有接口 `szgateway.jd.com/api/lowcode/orderDetails/getDealOrders.ajax` **不受该风控影响**，页面内点「近7天/近30天」即可截获结构化成交明细（字段：`ItmId`=SPU、`OrdAmt`=订单金额、`SkuJdPrc`=京东价、`Time`=日期、`PayTm`=支付时间；成交/取消/售后三个页签）——T+1 口径，回溯近几日成交、终判类问题直接够用，当日归因以 CLI 为准。参考实现：`京麦广告诊断` 工作区 `work/_probe_sz_orders3.js`（页面点击+截获响应）。
 
 ### 4c. 普惠到手价查询（广告定价口径，投放/调价前必查）
 
@@ -149,6 +173,8 @@ node scripts/probe-arrival-price.js <cdp端口> <输出目录>   # 输出 all-sk
 - **给「尚未进采集配置」的店铺做一次性探测时，`release_store_browsers()` 帮不上忙**：它只遍历配置内的店铺（2026-09-30 紫气企业店接入实测：jzt 未激活探测失败后，配置外的 9235 headless 实例残留锁 profile，用户打不开店铺窗口）。任务局部脚本必须在自己的 `finally` 里按 profile 路径 + `--headless` 显式清理自己拉起的实例，不能依赖按配置遍历的释放函数
 - **PowerShell 命令行传中文会被安全层间歇性吃成 `?`，且 `?` 在 `-like` 里是单字符通配符**（2026-09-29 实测：中文 profile 名损坏后，任意店窗口开着都误判 profile 占用）：中文参数/路径不要经命令行传递——从配置文件读取或用 glob；PowerShell spawn 与 stdin 管道传中文同样会损坏。详见 skill `o2-windows-runtime` 的完整沉淀
 - **全新店铺的商智接口按「新账号态」返回**（2026-09 云擎四店验证）：tradeSummary 不传 `indicators` 返回 `size=0/data=null`（易误判为无成交）、indexSummary 直接报「indicators不能为空」——两者都必须显式传 `indicators` 数组；flowSource 对这类店一律 10001 参数校验不通过（未解，报告写明渠道拆分缺失）；行业大盘 20001 无权限（店级权限，行业对照改用京准通行业接口）。探测顺序：先用 productTable 拿真实成交与类目，再用 7/8 月单查确认是否新店，再补显式 indicators
+- **新账号态 indexSummary 补充验证**（2026-10-23 圣迪欧实测）：indexSummary summary 端点显式传 4 指标 indicators（ord_amt/ord_qtty/uv/page_cnt）后可用，但 trend 端点同参数仍 10001——分日序列拿不到时用京准通广告分日（isDaily=True）替代呈现，报告写明全店分日成交缺失
+- **T+1 出数日历月会漂移，取数前先探最新可用日**（2026-10-19 四店实测）：9 月批次 T-1（9/29）当天可查，10 月批次 10/18 当天 GE 与商智两侧均无返回（次日 10/23 确认 10/18 有数）——不要假设 T-1 恒可查，先用单日 query 探测，本期统一截至最后一个有数日
 - **京准通分日报表 `obys` 不支持 `day`**：make_plans 旧版生成 `day|asc` 会 400「入参obys排序错误」，已改 `cost|desc`（isDaily=True 已按日分行）；跨店复用计划文件时注意 `pinIds` 是生成时的店铺账户号，换店必须重新生成，否则 400
 - 商智/京准通口径不同（新快车 vs 广告点击 30 天累计），报告数据说明必须写口径说明
 - 行业接口缺 `clickOrOrderCaliber/clickOrOrderDay/giftFlag/orderStatusCategory` 会 400「跟单口径缺失」
