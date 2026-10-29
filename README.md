@@ -22,6 +22,7 @@
 - **报告措辞自由发挥**：只约束结果要求（零 AI 痕迹、结论先行、数字可回查），不套固定模板和替换表，不同 agent 可以有自己的写法
 - **口径唯一 + 交付闸门**：POP 口径速查表统一「有效/下单、全店/部门、区间/日累加」等易混口径；`validate_report.py` 检查店铺ID、章节、行动清单和 Excel 结构，0 FAIL 才发布
 - **京喜渠道补充**：商智/黄金眼缺广告、CID、自然流量拆分时，用 EasyBI 京喜_通用数据集（1025136）补；明确标注渠道口径，不与全店数混算
+- **完整诊断矩阵（默认）**：合并 ODA 诊断的全部维度（18 项概览、铺货货盘、漏斗基准、货端质量、稳赚分层）与我们自己的看板能力（搜索词、京准通 8 维、实时订单、到手价、余额、稳赚、对投核验）；板块不许删，取不到写「数据不足」，闸门 `--full` 把关
 
 ## 安装
 
@@ -55,7 +56,7 @@ git clone https://github.com/ctzlyj/jd-store-diagnosis-skill.git
 │   ├── sz-fetch.js               # 商智 XHR 重放采集（模式 A）
 │   ├── ge-sz-fetch.py            # 黄金眼 + 代理旧商智采集（模式 B，headless）
 │   ├── jzt-run.js                # 京准通 XHR 重放采集
-│   ├── easybi_shop_query.py      # EasyBI 京喜数据集指定店铺查询（广告/CID/自然拆分）
+│   ├── easybi_shop_query.py      # EasyBI 京喜数据集查询（店铺/SPU/星级分组、完整翻页）
 │   ├── validate_report.py        # 交付结构闸门（md + Excel，0 FAIL 才发布）
 │   ├── close-stale-tabs.ps1      # 标签清理
 │   └── cdp-lib.js / guard.js      # CDP 底层库
@@ -64,7 +65,8 @@ git clone https://github.com/ctzlyj/jd-store-diagnosis-skill.git
     ├── ge-shop-insight.md        # 模式 B 链路/端点/三类区间口径/口径差异
     ├── ad-cold-start.md          # 广告冷启策略（广告部门口径）
     ├── metric-dictionary.md      # POP 诊断口径速查（唯一权威）
-    └── easybi-jx-dataset.md      # EasyBI 京喜数据集指标 ID/查询/口径边界
+    ├── easybi-jx-dataset.md      # EasyBI 京喜数据集指标 ID/查询/口径边界
+    └── full-diagnosis-matrix.md  # 完整诊断矩阵（18 项概览+四板块到数据源的映射）
 ```
 
 ## 迭代

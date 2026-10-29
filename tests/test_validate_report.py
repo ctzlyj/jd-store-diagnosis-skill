@@ -17,10 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "validate_report.py"
 
 
-def make_md(with_second_id=True):
+def make_md(with_second_id=True, full=False):
     filler = "这是一段用于满足最小长度的正文。" * 80
     notes_id = "\n- **店铺信息**：测试店，店铺ID：123456789。" if with_second_id else ""
-    return f"""# 测试店 · 2026年10月经营诊断报告
+    base = f"""# 测试店 · 2026年10月经营诊断报告
 
 **店铺ID：123456789**
 
@@ -66,6 +66,26 @@ def make_md(with_second_id=True):
 {notes_id}
 """
 
+    if full:
+        return base + """
+## 五、铺货节奏与货盘结构
+
+上架节奏、品类结构、价格带。
+
+## 六、货端质量
+
+信息分、价格星级、好评率、售后率。
+
+## 七、行业对照
+
+与同行对比。
+
+## 八、数据缺口
+
+流量来源数据不足。
+"""
+    return base
+
 
 def make_xlsx(path):
     wb = Workbook()
@@ -84,14 +104,14 @@ def make_xlsx(path):
 
 
 class ValidateReportTest(unittest.TestCase):
-    def run_gate(self, md_text):
+    def run_gate(self, md_text, extra_args=()):
         with tempfile.TemporaryDirectory() as tmp:
             md = Path(tmp) / "report.md"
             xlsx = Path(tmp) / "data.xlsx"
             md.write_text(md_text, encoding="utf-8")
             make_xlsx(xlsx)
             proc = subprocess.run(
-                [sys.executable, "-X", "utf8", str(SCRIPT),
+                [sys.executable, "-X", "utf8", str(SCRIPT), *extra_args,
                  "--md", str(md), "--xlsx", str(xlsx),
                  "--shop-id", "123456789", "--shop-name", "测试店"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -107,6 +127,16 @@ class ValidateReportTest(unittest.TestCase):
         code, out = self.run_gate(make_md(with_second_id=False))
         self.assertEqual(code, 1, out)
         self.assertIn("店铺ID 至少出现两次", out)
+
+    def test_full_report_passes_full_gate(self):
+        code, out = self.run_gate(make_md(with_second_id=True, full=True), ("--full",))
+        self.assertEqual(code, 0, out)
+        self.assertIn("结构自检全部通过", out)
+
+    def test_base_report_fails_full_gate(self):
+        code, out = self.run_gate(make_md(with_second_id=True, full=False), ("--full",))
+        self.assertEqual(code, 1, out)
+        self.assertIn("full·", out)
 
 
 if __name__ == "__main__":

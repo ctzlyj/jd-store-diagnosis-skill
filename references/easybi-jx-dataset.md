@@ -91,9 +91,9 @@ webcli easybi native --operation query --dataset 1025136 `
 - 只接受一页完整返回；`total` 大于 `page-size` 会报 `INCOMPLETE_NATIVE_RESULT`，不要拼接分页。
 - 查询期间前台窗口变化会报 `WINDOW_FOCUS_CHANGED`，重试一次；仍失败就缩小指标数或改用 4.2。
 
-### 4.2 指定店铺（页面上下文查询）
+### 4.2 指定店铺 / 指定维度（页面上下文查询）
 
-原生命令不支持 `shop in [...]`，用 `scripts/easybi_shop_query.py`：
+原生命令不支持 `shop in [...]`，也不支持按 SPU/SKU/星级分组，用 `scripts/easybi_shop_query.py`（`--group-by` 至多 2 个维度、`--filter` 任意维度 in 过滤、完整翻页拒绝脏页）：
 
 ```powershell
 python -X utf8 scripts/easybi_shop_query.py `
@@ -103,7 +103,32 @@ python -X utf8 scripts/easybi_shop_query.py `
   --session easybi13560 --out work/easybi-shops.json
 ```
 
-脚本会在后台标签打开数据源页、复用页面登录态发 `POST /api/data-hub/data/query`，不读 Cookie、不落盘凭证。
+```powershell
+# SPU 明细（TOP 集中度、动销）
+python -X utf8 scripts/easybi_shop_query.py `
+  --shops 13490204 --department 17603 `
+  --start 2026-10-01 --end 2026-10-22 `
+  --metrics 18902197,15804345 --group-by spu_id `
+  --session easybi13560 --out work/easybi-spus.json --no-open
+
+# 价格星级分布（货端质量）
+python -X utf8 scripts/easybi_shop_query.py `
+  --shops 13490204 --department 17603 `
+  --start 2026-10-01 --end 2026-10-22 `
+  --metrics 15804348,18902197 --group-by jdr_sch_sku_price_star_d `
+  --session easybi13560 --out work/easybi-stars.json --no-open
+
+# 铺货节奏（首次上柜按日）
+python -X utf8 scripts/easybi_shop_query.py `
+  --shops 13490204 --department 17603 `
+  --start 2026-10-01 --end 2026-10-22 `
+  --metrics 15804348 --group-by jdr_sch_sku_first_into_otc_tm `
+  --session easybi13560 --out work/easybi-launch.json --no-open
+```
+
+脚本会在后台标签打开数据源页、复用页面登录态发 `POST /api/data-hub/data/query`，不读 Cookie、不落盘凭证。`--meta` 指向缓存的元数据 JSON 可跳过每次重取（PowerShell 重定向出的 UTF-16 文件也能读）。
+
+分组查询已实测（2026-10-29，君凯 10/1—22）：group by `spu_id` 得 1 个成交 SPU（泡澡桶 ¥34,414.31、84 件，与黄金眼部门口径一致）；group by `jdr_sch_sku_price_star_d` 得 3星 9 款 ¥9,095.32、5星 7 款 ¥25,318.99。
 
 ## 5. 口径边界（必须写进报告）
 
@@ -150,3 +175,7 @@ python -X utf8 scripts/easybi_shop_query.py `
 | 商详 UV | 7,854 | 4,845 | +62.1% |
 
 这两组数只用于校验链路和口径，不是店铺全量结论。
+
+## 7. 1108514（京喜SKU主体数据集）边界
+
+元数据可读（`webcli easybi native --operation metadata --dataset 1108514`，734 字段），但 `businessScene=individual`，**原生 `/api/data-hub/data/query` 不支持**。它独有的原值字段（信息分原值、底线到手价、五星建议价、合伙人/陪跑/素材托管标识）目前只能走 EasyBI 页面探索；等价维度在 1025136 已覆盖大半（信息分不足90标识、价格星级、店铺星级、真实好评/评价、售后、首次上柜、在售标识、国补/甄选/IP/王牌）。POP 店的货端一律走京麦/商智。完整映射见 `full-diagnosis-matrix.md`。

@@ -34,6 +34,8 @@ def main():
     ap.add_argument("--shop-id", required=True)
     ap.add_argument("--shop-name", required=True)
     ap.add_argument("--min-chars", type=int, default=1500)
+    ap.add_argument("--full", action="store_true",
+                    help="完整诊断模式：另查铺货/货盘、价格带、货端质量、行业对照、数据缺口章节")
     args = ap.parse_args()
 
     fails = []
@@ -106,6 +108,15 @@ def main():
 
     fails.append(not check(args.shop_name in md and args.shop_name in labels,
                            "店铺名在 md 与 Excel 中一致"))
+
+    if args.full:
+        fails.append(not check(bool(re.search(r"铺货|货盘", md)), "full·铺货/货盘板块"))
+        fails.append(not check(bool(re.search(r"价格带|价格结构", md)), "full·价格带板块"))
+        fails.append(not check(bool(re.search(r"货端质量|信息分|价格星级|好评率|售后率", md)),
+                               "full·货端质量板块"))
+        fails.append(not check(bool(re.search(r"行业对照|行业大盘|同行", md)), "full·行业对照板块"))
+        fails.append(not check(bool(re.search(r"数据不足|数据缺口|看不到|取不到", md)),
+                               "full·数据缺口声明"))
 
     print("=" * 46)
     if any(fails):
