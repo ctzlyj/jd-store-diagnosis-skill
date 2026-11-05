@@ -1,16 +1,46 @@
 ---
 name: jd-store-diagnosis
-description: 京东POP店铺月度经营+广告全链路数据诊断。给定目标店铺（京麦店铺浏览器快捷方式、店铺名或广告账号），通过后台接口采集京东商智（jdsz.jd.com：交易/流量/商品/行业/搜索词）与京准通（jzt.jd.com：账户报表8维度/计划/分日/行业大盘/关键词榜单/流量解析）数据，输出结论先行、行动导向、可直接发给商家老板的JoySpace诊断报告+Excel数据表。当用户提到店铺诊断、经营诊断、广告诊断、京准通诊断、商智取数、店铺月度分析、诊断报告、帮商家看数据、店铺报告时使用。商家未开通京麦后台数据权限时，改走黄金眼（ge.jd.com）店铺看板 + 代理版旧商智取数。全程不抢占用户工作界面。
+description: 京东POP店铺月度经营+广告全链路数据诊断，三层架构：官方京麦CLI只读巡检R01-R12（免浏览器，所有店可跑）→ 商智/京准通明细（店铺专用浏览器）→ 黄金眼补充（无后台权限店铺）。输出结论先行、行动导向、可直接发给商家老板的JoySpace诊断报告+Excel数据表与巡检问题清单+行动建议。当用户提到店铺诊断、经营诊断、广告诊断、京准通诊断、商智取数、店铺月度分析、诊断报告、帮商家看数据、店铺报告、腾飞巡检、商品巡检时使用。哪一层拿不到数据，报告如实写明，不编造。全程只读，不抢占用户工作界面。
+version: 0.2.0
 ---
 
 # 京麦店铺经营/广告数据诊断
 
 给目标店铺做一次完整诊断，交付一份商家老板能直接看懂的 JoySpace 报告 + Excel 明细。
 
+## 采销快速开始（标准用法）
+
+**标准提示词（采销只需说这一句）**：
+
+> 帮我诊断「店铺名」上个月的经营和广告情况
+
+**结果文件在哪里（跑完告诉采销）**：
+
+- 官方巡检报告：用户目录 `~\.jd-store-diagnosis\runs\<运行时间>\report.md`（含问题清单 R01–R12、行动清单与建议承接 Skill；同目录 report.json 是可回查的原始结构）
+- 完整诊断（商智/京准通层）：报告与 Excel 在当前任务 work/ 目录，JoySpace 链接发在对话里
+
+**首次使用三步**：① 环境自检 → ② 店铺没有京麦 CLI 授权时，先用京麦 CLI 店铺连接授权（JoyCode 里找 jingmai-cli-linker；官方正在升级 ensure-shop 一键连接，届时按其引导）→ ③ 跑巡检。
+
+```powershell
+# ① 环境自检：检查 Node、Python、jdo-cli、WebCLI、Chrome，缺什么会给照做的下一步
+python -X utf8 scripts/doctor.py
+```
+
+## 三层诊断架构（哪层跑不了就如实写，不编造）
+
+| 层 | 内容 | 前提 | 跑不了时 |
+| --- | --- | --- | --- |
+| **L1 官方 CLI 巡检** | 京麦 CLI 只读巡检 R01–R12：在售供给/信息健康/价格星级/零动销/零库存/违约/待出库/客服/违规/审核/素材因子/低分评价 + 行动清单 + 次日复检 | 店铺完成过京麦 CLI 授权（jdo-cli + Profile） | 报告写明未检查项与原因；不阻塞 L2/L3 |
+| **L2 商智/京准通明细** | 交易/流量/商品/行业/搜索词 + 京准通 8 维报表、行业基准、余额、稳赚——本 Skill 的六步流程 | 店铺专用浏览器 Profile 完成过一次商智/京准通登录 | 报告写明缺什么、为什么（详见各节） |
+| **L3 黄金眼补充** | GE 店铺看板 + 代理旧商智（模式 B） | 商家无京麦后台权限但 GE 能查到该店 | 报告写明缺口；京准通明细天然缺失 |
+
+跨 Skill 的整改调度由「黑灯运营智能体」总调度 Skill 统一负责；本 Skill 只在报告行动清单里写明建议用哪个业务 Skill（如素材缺口→jd-material-pop、主图问题→jd-jingmai-batch-image-refresh），不派发任务。
+
 ## 输入与前提
 
 - 用户提供：店铺京麦快捷方式（.lnk）、店铺名、或广告账户号之一；诊断月份
-- 模式 A 前提：本机已有该店铺的专用 Chrome profile（已登录商智/京准通）。没有则先创建 profile 并引导用户登录一次（说明：只需一次，后续复用）
+- L1 前提：店铺完成过京麦 CLI 授权。**没有授权就先用京麦 CLI 店铺连接授权**（JoyCode 里找 jingmai-cli-linker 技能按引导连接；京麦 CLI 店铺连接正在升级 ensure-shop，届时用一键连接），不要在本 Skill 里复制授权代码。店铺身份一律用明确的 `--profile` 并用 venderinfo 核对 venderId 与店名，**禁止 default**
+- 模式 A 前提：本机已有该店铺的专用 Chrome profile（已登录商智/京准通）。没有则用 `scripts/shop-browser.ps1 -Login` 引导登录一次（说明：只需一次，后续复用）
 - 权限范围：只在当前账号权限内取数，不绕过登录或权限
 
 ### 取数模式先判定
@@ -34,15 +64,40 @@ description: 京东POP店铺月度经营+广告全链路数据诊断。给定目
 
 ## 流程（六步）
 
-### 1. 环境准备
+**先跑 L1 官方巡检（免浏览器，所有店可跑）**——完整口径见 `references/inspection.md`：
 
 ```powershell
-powershell -File scripts/restart-shop-browser.ps1 -ShopProfile <店铺profile目录> -Port 9224
-Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/zguard-loop.ps1','-Port','9224','-Seconds','1800' -WindowStyle Hidden
-powershell -File scripts/close-stale-tabs.ps1
+# 核对店铺身份（返回 shopId/venderId/店名，与用户指定或已核验记录比对，不匹配立即停止）
+node scripts/inspection/cli.cjs identity --profile "<已授权Profile>"
+
+# 首次/CLI 升级后：先验证 1 个商品，再 10 个；抽样不能包装成全店完成
+node scripts/inspection/cli.cjs scan --profile "<Profile>" --shop-id "<shopId>" --shop-name "<完整店名>" --scope sample --limit 1
+node scripts/inspection/cli.cjs scan --profile "<Profile>" --shop-id "<shopId>" --shop-name "<完整店名>" --scope sample --limit 10
+
+# 用户确认全店范围后：
+node scripts/inspection/cli.cjs scan --profile "<Profile>" --shop-id "<shopId>" --shop-name "<完整店名>" --scope full
+
+# 次日复检（对比前次报告，输出 新增/持续/已恢复/无法判定）：
+node scripts/inspection/cli.cjs scan --profile "<Profile>" --shop-id "<shopId>" --shop-name "<完整店名>" --scope full --baseline "<前一次 report.json>"
 ```
 
-zguard 循环约 30 分钟有效期，过期重启；防止店铺浏览器任何弹窗抢用户焦点。
+- 只读：固定官方 GET 白名单，无任务队列、无平台写入、无自动登录；取数节奏 300ms/请求，AUTH/RATE/连续失败自动停
+- 报告默认存用户目录 `.jd-store-diagnosis/runs/<运行目录>/`（report.md + report.json），每次新目录不覆盖
+- 行动清单按 `references/inspection.md` 的路由表写明建议承接 Skill；素材缺口→jd-material-pop、主图批量重制→jd-jingmai-batch-image-refresh、比价→jd-competitor-price-adjustment-skill 等
+- 采销只读巡检结果时，问题清单里「数据不足」的项不编造结论，与 L2 交叉补齐
+
+### 1. 环境准备（L2：店铺专用浏览器）
+
+```powershell
+# 每家店一个独立 Profile（默认 用户目录\JD-Shop-Browsers\<店铺>），端口自动选空闲；后台隐藏运行，不碰采销正在用的浏览器
+powershell -File scripts/shop-browser.ps1 -Shop "<店铺标识>"
+# 首次使用（或提示未登录）时，引导采销登录一次商智/京准通，之后长期复用：
+powershell -File scripts/shop-browser.ps1 -Shop "<店铺标识>" -Login
+# 任务结束后释放该店铺浏览器：
+powershell -File scripts/shop-browser.ps1 -Shop "<店铺标识>" -Release
+```
+
+脚本输出 CDP 地址（如 `http://127.0.0.1:9300`）与登录状态；后续采集命令前设置 `$env:SHOP_CDP='<CDP地址>'`。headless 模式无弹窗；如需弹窗守卫可另跑 `scripts/zguard-loop.ps1 -Port <端口>`（约 30 分钟有效期，过期重启）。
 
 ### 2. 生成采集计划
 
@@ -175,7 +230,7 @@ node scripts/probe-arrival-price.js <cdp端口> <输出目录>   # 输出 all-sk
 
 ## 常见坑
 
-- **切店必须换干净浏览器**：`restart-shop-browser.ps1` 旧版只清理同名 profile 的旧进程；换下一家店时，上一家店的 Chrome 仍占着 9224 端口，新实例绑定失败、就绪检查命中旧实例，后续所有采集会**打到上一家店**（2026-09 云擎四店实战踩中，靠 logininfo pin 对不上才发现）。现行脚本已自动清理端口占用者并在就绪后核验 profile 归属；多店批量任务仍应在每店开跑前用 `common/logininfo` 回读 pin 核对一次身份。
+- **切店必须换干净浏览器**：换下一家店时，上一家店的 Chrome 若仍占着端口，新实例绑定失败、就绪检查命中旧实例，后续所有采集会**打到上一家店**（2026-09 云擎四店实战踩中，靠 logininfo pin 对不上才发现）。现行 `shop-browser.ps1` 每店独立 Profile + 自动选空闲端口，并在就绪后核验 profile 归属；多店批量任务仍应在每店开跑前用 `common/logininfo` 回读 pin 核对一次身份。
 - **含中文的 .ps1 必须存 UTF-8 with BOM**：PowerShell 5.1 对无 BOM 文件按 ANSI/GBK 解析，中文注释的乱码会**静默破坏后续语句的执行**（2026-09 实测：同一段过滤逻辑，无 BOM 版 `$mine` 判空、加 BOM 后正常；去掉中文注释也正常）。用 apply_patch 等编辑器改完 .ps1 后必须补 BOM（`[IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($true)))`）
 - PowerShell 写 JSON 计划必须无 BOM：用 `[IO.File]::WriteAllText` 配 `UTF8Encoding($false)`；make_plans.py 已处理
 - PowerShell 下 python 内联脚本读中文路径会 GBK 乱码报错（路径变 `??`）：改用相对路径，或设 `PYTHONUTF8=1`
@@ -197,4 +252,6 @@ node scripts/probe-arrival-price.js <cdp端口> <输出目录>   # 输出 all-sk
 
 ## 迭代
 
-本 Skill 源自 2026-09 淡雅装饰画甄选店、墨派风画舍、京韵丹青装饰画店、冬月、全球锦宏优选（首例模式 B：无京麦权限，黄金眼 + 代理旧商智）、惠民日用供应链经营部（模式 B 第二例，部门类目构成因店而异的坑）、云擎Ai供应链/云擎生活/云擎云仓/吖嘟咪（同一商家四店批量横评：新店商智接口态、切店端口串店、京准通分日 obys、ps1 无 BOM 静默失效）、稳赚计划机制专项探索（五店 69 SPU：cap 决定因子与门槛公式、rt=80 资格推荐池、日内刷新与模型侧重算归因、补单证据纪律）十次全链路实战（含 szweb 新版签名破解、京准通三种响应 shape、账户余额断投核查、行业大盘/品牌榜/热词榜、Excel 十表、JoySpace 发布链、cxjzt 采销协同对投后台只读核验）。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。
+**v0.2.0（2026-11-05，全体采销可用版）**：并入腾飞巡检（jd-tengfei-diagnosis）——官方京麦 CLI 只读巡检 R01–R12 成为第一层（免浏览器、固定官方 GET 白名单、问题清单 + 行动路由 + `--baseline` 次日复检），移除 capabilities.json 能力哈希登记与自建任务队列（跨 Skill 调度移交「黑灯运营智能体」总调度）；浏览器层从维护人专用固定端口 9224 改为每店独立 Profile + 自动选空闲端口的 `shop-browser.ps1`（首次 `-Login` 引导、之后隐藏后台复用、`-Release` 释放）；新增 `scripts/doctor.py` 环境自检；frontmatter 补 version；清除全部个人路径（easybi WebCLI 改自动发现、probe 脚本改相对引用）；SKILL.md 增加采销标准提示词与三层诊断架构。
+
+本 Skill 源自 2026-09 淡雅装饰画甄选店、墨派风画舍、京韵丹青装饰画店、冬月、全球锦宏优选（首例模式 B：无京麦权限，黄金眼 + 代理旧商智）、惠民日用供应链经营部（模式 B 第二例，部门类目构成因店而异的坑）、云擎Ai供应链/云擎生活/云擎云仓/吖嘟咪（同一商家四店批量横评：新店商智接口态、切店端口串店、京准通分日 obys、ps1 无 BOM 静默失效）、稳赚计划机制专项探索（五店 69 SPU：cap 决定因子与门槛公式、rt=80 资格推荐池、日内刷新与模型侧重算归因、补单证据纪律）、腾飞计划巡检与任务派发 MVP（官方 GET 白名单、只读纪律、身份核验）多次全链路实战（含 szweb 新版签名破解、京准通三种响应 shape、账户余额断投核查、行业大盘/品牌榜/热词榜、Excel 十表、JoySpace 发布链、cxjzt 采销协同对投后台只读核验）。发现新端点、新坑、更好的分析角度，先在任务里验证通过，再更新本仓库（GitHub 公开仓库，欢迎 PR/Issue）。

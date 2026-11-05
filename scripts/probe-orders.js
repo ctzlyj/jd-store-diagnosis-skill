@@ -7,7 +7,7 @@
 //       -> results[].orderCreateTime/paymentConfirmTime/orderCompleteTime(毫秒时间戳)、orderItems[].skuId/jdPrice/num、orderStatusInfo.orderStatusName
 const fs = require('fs');
 const path = require('path');
-const { Cdp } = require(path.join('C:/Users/caotong.888/.joycode/skills/jd-store-diagnosis/scripts', 'cdp-lib.js'));
+const { Cdp } = require('./cdp-lib.js');
 
 const PORT = process.argv[2];
 const OUT = process.argv[3];

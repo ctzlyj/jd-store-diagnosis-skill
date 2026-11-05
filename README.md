@@ -47,11 +47,13 @@ git clone https://github.com/ctzlyj/jd-store-diagnosis-skill.git
 ## 仓库结构
 
 ```
-├── SKILL.md                      # Skill 入口：完整六步流程
+├── SKILL.md                      # Skill 入口：三层诊断（L1官方CLI巡检 R01-R12 → L2商智/京准通 → L3黄金眼）
 ├── scripts/
+│   ├── doctor.py                 # 环境自检（Node/Python/jdo-cli/WebCLI/Chrome，缺什么给下一步）
+│   ├── shop-browser.ps1          # 店铺专用浏览器（每店独立Profile、自动端口、首次登录引导、隐藏后台）
+│   ├── inspection/               # L1 官方京麦CLI只读巡检（identity/scan/复检，固定GET白名单）
 │   ├── make_plans.py             # 按店铺参数生成全部采集计划
 │   ├── diagnosis-config.example.json  # 配置模板
-│   ├── restart-shop-browser.ps1  # 专用浏览器启动（CDP 9224）
 │   ├── zguard.ps1 / zguard-loop.ps1   # 焦点守卫（不抢用户界面）
 │   ├── sz-fetch.js               # 商智 XHR 重放采集（模式 A）
 │   ├── ge-sz-fetch.py            # 黄金眼 + 代理旧商智采集（模式 B，headless）
@@ -61,6 +63,7 @@ git clone https://github.com/ctzlyj/jd-store-diagnosis-skill.git
 │   ├── close-stale-tabs.ps1      # 标签清理
 │   └── cdp-lib.js / guard.js      # CDP 底层库
 └── references/
+    ├── inspection.md             # L1 巡检口径 + 行动路由（问题→承接Skill）+ 次日复检
     ├── api-reference.md          # 模式 A 已验证端点 + 载荷 + 坑
     ├── ge-shop-insight.md        # 模式 B 链路/端点/三类区间口径/口径差异
     ├── ad-cold-start.md          # 广告冷启策略（广告部门口径）

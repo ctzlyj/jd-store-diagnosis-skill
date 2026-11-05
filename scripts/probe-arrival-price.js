@@ -5,7 +5,7 @@
 //      dsm.market.tool.common.api.PriceQueryOuterService.queryPriceInfoList（无需 h5st，2026-09-29 实测）。
 // 输出：all-skus.json（skuId/wareId/skuName/jdPrice/perfectArrivalPrice/arrivalPrice/minPrice/alias/stockNum）// full-page fetch of queryPriceInfoList for a store; dumps all SKUs' arrival prices
 const fs = require('fs'); const path = require('path');
-const { Cdp } = require(path.join('C:/Users/caotong.888/.joycode/skills/jd-store-diagnosis/scripts', 'cdp-lib.js'));
+const { Cdp } = require('./cdp-lib.js');
 const PORT = process.argv[2]; const OUT = process.argv[3];
 if (!PORT || !OUT) { console.error('usage: node _probe_price_all.js <port> <outdir>'); process.exit(1); }
 (async () => {

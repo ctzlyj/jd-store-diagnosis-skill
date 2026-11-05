@@ -33,12 +33,31 @@ import argparse
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 import uuid
 
 DATASOURCE_URL = "https://easybi.jd.com/beta/#/datasource/13560?tab=27"
-DEFAULT_WEBclI = r"D:\CodexTools\npm-global\node_modules\@jd\webcli\dist\src\main.js"
+
+
+def _resolve_webcli_main():
+    """Locate the WebCLI entry: WEBCli_MAIN/WEBCLI_MAIN env > webcli on PATH > common npm global roots."""
+    env_value = os.environ.get("WEBCli_MAIN") or os.environ.get("WEBCLI_MAIN")
+    if env_value and os.path.exists(env_value):
+        return env_value
+    found = shutil.which("webcli")
+    if found:
+        return found
+    for root in (os.path.join(os.environ.get("APPDATA", ""), "npm", "node_modules"),
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "npm", "node_modules")):
+        candidate = os.path.join(root, "@jd", "webcli", "dist", "src", "main.js")
+        if os.path.exists(candidate):
+            return candidate
+    raise SystemExit("WebCLI not found: run `o2 install webcli`, or set WEBCli_MAIN to @jd/webcli dist/src/main.js")
+
+
+DEFAULT_WEBclI = _resolve_webcli_main()
 DEFAULT_DIM_GROUP = "7a43b98aa558f13279c5add3c0367bc3"
 PAGE_SIZE = 1000
 
@@ -50,7 +69,8 @@ def decode(raw):
 
 
 def run_node(main_js, args, timeout=180):
-    proc = subprocess.run(["node", main_js, *args], capture_output=True, timeout=timeout)
+    command = ["node", main_js, *args] if main_js.endswith(".js") else [main_js, *args]
+    proc = subprocess.run(command, capture_output=True, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError(f"webcli failed ({proc.returncode}): {decode(proc.stderr)[:800]}")
     return decode(proc.stdout)
