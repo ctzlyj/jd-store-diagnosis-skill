@@ -1,0 +1,17 @@
+name: POP diagnosis
+on: [push, pull_request]
+jobs:
+  regression:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m pip install openpyxl
+      - run: node --test tests/inspection.test.cjs
+      - run: python -X utf8 -m unittest discover -s tests
+      - run: python -X utf8 tests/pop_diagnosis_contract.py

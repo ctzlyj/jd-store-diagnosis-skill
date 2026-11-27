@@ -228,8 +228,8 @@ test('report carries skill version and every triggered finding gets a routed act
 
 test('baseline recheck marks new, continued and resolved findings per rule', async () => {
   const makeFinding = (code, status) => ({ code, title: code, status, triggered: status === 'issue' });
-  const report = { shop: { shopId: '12345', shopName: '测试店铺', venderId: '67890' }, startedAt: '2026-11-05T00:00:00.000Z', finishedAt: '2026-11-05T00:01:00.000Z', requestCount: 3, failures: [], limitations: [], scope: { kind: 'sample', inspectedProducts: 1, inspectedSkus: 1 }, findings: [makeFinding('R01', 'clear'), makeFinding('R02', 'issue'), makeFinding('R03', 'issue'), makeFinding('R04', 'unavailable')] };
-  const baseline = { shop: { shopId: '12345' }, startedAt: '2026-11-04T00:00:00.000Z', scope: { kind: 'full' }, findings: [makeFinding('R01', 'issue'), makeFinding('R02', 'issue'), makeFinding('R03', 'clear'), makeFinding('R04', 'issue')] };
+  const report = { shop: { shopId: '12345', shopName: '测试店铺', venderId: '67890' }, startedAt: '2026-11-05T00:00:00.000Z', finishedAt: '2026-11-05T00:01:00.000Z', requestCount: 3, failures: [], limitations: [], scope: { kind: 'full', wholeStore: true, inspectedProducts: 1, inspectedSkus: 1 }, findings: [makeFinding('R01', 'clear'), makeFinding('R02', 'issue'), makeFinding('R03', 'issue'), makeFinding('R04', 'unavailable')] };
+  const baseline = { shop: { shopId: '12345' }, startedAt: '2026-11-04T00:00:00.000Z', scope: { kind: 'full', wholeStore: true }, findings: [makeFinding('R01', 'issue'), makeFinding('R02', 'issue'), makeFinding('R03', 'clear'), makeFinding('R04', 'issue')] };
   const summary = compareWithBaseline(report, baseline);
   assert.equal(summary.summary.new, 1);
   assert.equal(summary.summary.continued, 1);
@@ -239,6 +239,10 @@ test('baseline recheck marks new, continued and resolved findings per rule', asy
   assert.equal(summary.changes.find(item => item.code === 'R03').change, 'new');
   assert.equal(summary.changes.find(item => item.code === 'R01').change, 'resolved');
   assert.equal(summary.changes.find(item => item.code === 'R04').change, 'inconclusive');
+  const sampled = compareWithBaseline({ ...report, scope: { kind: 'sample' } }, baseline);
+  assert.equal(sampled.changes.find(item => item.code === 'R01').change, 'inconclusive');
+  assert.equal(sampled.changes.find(item => item.code === 'R03').change, 'inconclusive');
+  assert.throws(() => compareWithBaseline(report, { ...baseline, shop: { ...baseline.shop, venderId: '99887' } }), /BASELINE_SHOP_MISMATCH/);
   const markdown = formatMarkdown(report, summary);
   assert.match(markdown, /## 复检对比/);
   assert.match(markdown, /新增 1、持续 1、已恢复 1、无法判定 1/);
