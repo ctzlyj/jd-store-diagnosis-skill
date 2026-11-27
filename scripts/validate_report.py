@@ -2,10 +2,8 @@
 """Structural gate for a shop diagnosis deliverable (markdown + Excel).
 
 Usage:
-  python -X utf8 scripts/validate_report.py \
-    --md "报告/某店-十月经营诊断报告.md" \
-    --xlsx "报告/某店-十月经营数据.xlsx" \
-    --shop-id 204560127 --shop-name 东来臻选经营部
+  python -X utf8 scripts/validate_report.py --md report.md --xlsx data.xlsx \
+    --shop-id SHOP_ID --shop-name SHOP_NAME
 
 Exit code 0 only when every check passes. Do not replace this with eyeballing.
 """
@@ -68,7 +66,7 @@ def main():
     for key in ("数据来源", "期间", "口径"):
         fails.append(not check(key in md, f"数据说明·{key}"))
 
-    fails.append(not check("~" not in md, "不含 ~ 区间（JoySpace 会渲染成删除线）"))
+    fails.append(not check("~" not in md, "报告区间格式可正常呈现"))
 
     placeholders = [p for p in ("TODO", "待补", "XXX", "{店铺名}", "待填写") if p in md]
     fails.append(not check(not placeholders, "无占位符", "、".join(placeholders)))
@@ -122,7 +120,7 @@ def main():
     if any(fails):
         print(f"共 {sum(fails)} 项 FAIL：结构不达标，先补齐再发布")
         sys.exit(1)
-    print("结论：结构自检全部通过，可发布")
+    print("结论：结构自检全部通过。请按报告所列数据来源核实经营结论。")
 
 
 if __name__ == "__main__":

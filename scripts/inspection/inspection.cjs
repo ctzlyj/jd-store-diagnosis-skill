@@ -2,7 +2,7 @@ const summaries = require('./vendor/core.cjs');
 const rules = require('./vendor/merchant-sync.cjs');
 const { ALLOWED, requireProfile, assertSuccess, responseRows, createOfficialInvoker, readIdentity, readPages } = require('./transport.cjs');
 
-const SKILL_VERSION = '0.2.0';
+const SKILL_VERSION = '0.2.1';
 const TITLES = ['在售商品供给', '商品信息健康', '价格竞争力', '近30天零动销', '动销商品零库存规格', '商品违规违约单', '待出库超过24小时', '客服未回复', '违规待整改商品', '商品审核异常', '官方素材待优化项', '客服低分评价'];
 const MATERIAL_FACTORS = new Set(['hasMainVideo', 'isImgWhite', 'hasShortTitle', 'hasTransImg', 'hasSellPointImg', 'hasSceneImg', 'hasElectronicManual', 'sellPointNum', 'hasLongImage', 'squareMainImageQuality', 'longMainImageQuality']);
 const ACTIONS = {
@@ -215,6 +215,14 @@ async function runInspection({ profile, shopId, shopName, scope = 'sample', limi
   const allSkus = products.flatMap(product => product.skus);
   const priceKnown = allSkus.filter(sku => sku.priceStar !== null || ['bad', 'avg', 'good', 'excellent'].includes(sku.competitivePower));
   put('R03', rules.evaluatePriceCompetitiveness(products, summaries.summarizePriceRecords(prices.rows)), sources.prices.status === 'ok' && (priceKnown.length > 0 || inventory.rows.length === 0), ['products', 'prices'], metricCoverageComplete && priceKnown.length === allSkus.length);
+  const priceFinding = findings.find(item => item.code === 'R03');
+  if (priceFinding.evidence) {
+    const rated = allSkus.filter(sku => sku.priceStar >= 1 && sku.priceStar <= 5);
+    const lowStars = rated.filter(sku => sku.priceStar <= 3).length;
+    priceFinding.evidence.starCoverage = { inspectedSkus: allSkus.length, ratedSkus: rated.length,
+      unknownStars: allSkus.length - rated.length, lowStars };
+    priceFinding.message += ` 已读 ${allSkus.length} 个 SKU，已知星级 ${rated.length} 个，其中 1–3 星 ${lowStars} 个；其余星级未知。`;
+  }
   const knownSales = products.filter(product => product.sales30d !== null);
   const zeroSales = knownSales.filter(product => product.sales30d === 0);
   put('R04', { ...rules.evaluateLowSales(products), actual: zeroSales.length, triggered: zeroSales.length > 0, message: `已读商品中，${zeroSales.length} 个在售商品近30天销量明确为0；${products.length - knownSales.length} 个销量未知。` }, knownSales.length > 0 || (inventory.complete && !inventory.rows.length), ['products'], metricCoverageComplete && knownSales.length === products.length);
@@ -227,6 +235,26 @@ async function runInspection({ profile, shopId, shopName, scope = 'sample', limi
     const activePenalties = datasets.penalties.rows.filter(row => Number(row.effectStatus) !== 2);
     const penaltySummary = { ...summaries.summarizePenaltyRecords(datasets.penalties.rows), total: activePenalties.length, seriousCount: activePenalties.filter(row => Number(row.illegalLevel) === 1).length };
     put('R06', rules.evaluatePenalties(penaltySummary), sources.penalties.status === 'ok', ['penalties']);
+    const penaltyFinding = findings.find(item => item.code === 'R06');
+    if (penaltyFinding.evidence && activePenalties.length) {
+      const parent = new Map();
+      for (const product of products) {
+        parent.set(String(product.productId), String(product.productId));
+        for (const sku of product.skus) parent.set(String(sku.skuId), String(product.productId));
+      }
+      const counts = new Map();
+      for (const row of activePenalties) {
+        const ids = summaries.summarizePenaltyRecords([row]).items[0]?.productIds || [];
+        for (const spu of new Set(ids.map(id => parent.get(id)).filter(Boolean))) {
+          counts.set(spu, (counts.get(spu) || 0) + 1);
+        }
+      }
+      const first = [...counts].sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+      if (first) {
+        penaltyFinding.evidence.firstProductToReview = {spuId: first[0], penaltyCount: first[1]};
+        penaltyFinding.message += ` 优先核对商品 ${first[0]} 的 ${first[1]} 张关联违约单及对应整改要求。`;
+      }
+    }
     put('R07', rules.evaluateFulfillment(summaries.summarizeFulfillment(datasets.orders.rows, timestamp)), sources.orders.status === 'ok', ['orders'], datasets.orders.rows.every(row => numberOrNull(row.createdTime) > 0));
     put('R08', rules.evaluateService(summaries.summarizeService(datasets.service.rows, window)), sources.service.status === 'ok', ['service'], datasets.service.rows.every(row => numberOrNull(row.unReplyCount) !== null));
     const violationSummary = summaries.summarizeViolatingProducts(datasets.violations.rows);
@@ -241,6 +269,8 @@ async function runInspection({ profile, shopId, shopName, scope = 'sample', limi
     }
     const auditCoverage = datasets.applies.rows.every(row => numberOrNull(row.pushStatus ?? row.status ?? row.keeperStatus) !== null) && (!pendingStatusRows.length || pendingCoverage);
     put('R10', rules.evaluateProductApplies(appliesSummary), sources.applies.status === 'ok', ['applies', 'appliesPending'], auditCoverage);
+    const applications = findings.find(item => item.code === 'R10');
+    if (applications.triggered) applications.message += ' 驳回原因须按申请单逐笔核验；其他商品违约记录只能作为排查线索。';
     const evaluationSummary = summaries.summarizeServiceEvaluations(datasets.evaluations.rows, window);
     if (!datasets.evaluations.rows.length) evaluationSummary.satisfactionRate = null;
     put('R12', rules.evaluateServiceEvaluations(evaluationSummary), sources.evaluations.status === 'ok', ['evaluations'], datasets.evaluations.rows.every(row => numberOrNull(row.degree) !== null));
@@ -254,16 +284,18 @@ async function runInspection({ profile, shopId, shopName, scope = 'sample', limi
 
 function compareWithBaseline(report, baseline) {
   if (!baseline?.shop?.shopId || String(baseline.shop.shopId) !== String(report.shop.shopId)) throw new Error('BASELINE_SHOP_MISMATCH');
+  if (baseline.shop.venderId && report.shop.venderId && String(baseline.shop.venderId) !== String(report.shop.venderId)) throw new Error('BASELINE_SHOP_MISMATCH');
   const baselineFindings = new Map(baseline.findings.map(item => [item.code, item]));
   const changes = report.findings.map(finding => {
     const previous = baselineFindings.get(finding.code);
-    const wasIssue = previous?.status === 'issue';
-    const isIssue = finding.status === 'issue';
-    const isUnread = ['unavailable', 'partial', 'not_checked'].includes(finding.status);
+    const wasIssue = previous?.triggered === true || previous?.status === 'issue';
+    const isIssue = finding.triggered === true || finding.status === 'issue';
+    const comparableScope = baseline.scope?.kind === 'full' && report.scope?.kind === 'full' &&
+      baseline.scope?.wholeStore && report.scope?.wholeStore;
     let change = 'unchanged';
     if (isIssue && wasIssue) change = 'continued';
-    else if (isIssue && !wasIssue) change = 'new';
-    else if (!isIssue && wasIssue) change = isUnread ? 'inconclusive' : 'resolved';
+    else if (isIssue && !wasIssue) change = comparableScope && previous?.status === 'clear' ? 'new' : 'inconclusive';
+    else if (!isIssue && wasIssue) change = comparableScope && finding.status === 'clear' ? 'resolved' : 'inconclusive';
     return { code: finding.code, title: finding.title, from: previous?.status ?? 'missing', to: finding.status, change };
   });
   const summary = {
